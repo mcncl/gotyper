@@ -52,21 +52,14 @@ func TestParse_SimpleObject(t *testing.T) {
 	}
 
 	// Type assertion is needed because ir.Root is models.JSONValue (interface{})
-	actualRoot, ok := ir.Root.(map[string]interface{})
+	actualRoot, ok := ir.Root.(models.JSONObject)
 	if !ok {
-		t.Fatalf("Parse() root is not a map[string]interface{}, got %T", ir.Root)
+		t.Fatalf("Parse() root is not a models.JSONObject, got %T", ir.Root)
 	}
 
-	// Convert actualRoot to models.JSONObject for DeepEqual
-	// json.Unmarshal into interface{} for numbers results in float64 by default,
-	// or json.Number if UseNumber() is called on the decoder.
-	// Our Parse function doesn't directly use json.Decoder on the final step,
-	// but the underlying json.Unmarshal does.
-	// For this test, we'll ensure the map structure is correct.
-	// The values will be interface{}, so we need to compare them carefully.
-
-	// Convert actualRoot to models.JSONObject for comparison
-	actualAsJSONObject := convertToModelTypes(actualRoot).(models.JSONObject)
+	// In our implementation, the parser already returns models.JSONObject
+	// so we can directly compare with the expected result
+	actualAsJSONObject := actualRoot
 	
 	if !reflect.DeepEqual(actualAsJSONObject, expectedRoot) {
 		t.Errorf("Parse() root = %v, want %v", actualAsJSONObject, expectedRoot)
@@ -94,13 +87,13 @@ func TestParse_SimpleArray(t *testing.T) {
 		json.Number("3.14"),
 	}
 	// Type assertion
-	actualRoot, ok := ir.Root.([]interface{})
+	actualRoot, ok := ir.Root.(models.JSONArray)
 	if !ok {
-		t.Fatalf("Parse() root is not a []interface{}, got %T", ir.Root)
+		t.Fatalf("Parse() root is not a models.JSONArray, got %T", ir.Root)
 	}
 
-	// Convert actualRoot to models.JSONArray for comparison
-	actualAsJSONArray := convertToModelTypes(actualRoot).(models.JSONArray)
+	// In our implementation, the parser already returns models.JSONArray
+	actualAsJSONArray := actualRoot
 	
 	if !reflect.DeepEqual(actualAsJSONArray, expectedRoot) {
 		t.Errorf("Parse() root = %v, want %v", actualAsJSONArray, expectedRoot)
@@ -129,13 +122,13 @@ func TestParse_NestedObject(t *testing.T) {
 		"tags":   models.JSONArray{"go", "json"},
 	}
 
-	actualRoot, ok := ir.Root.(map[string]interface{})
+	actualRoot, ok := ir.Root.(models.JSONObject)
 	if !ok {
-		t.Fatalf("Parse() root is not a map[string]interface{}, got %T", ir.Root)
+		t.Fatalf("Parse() root is not a models.JSONObject, got %T", ir.Root)
 	}
 
-	// Convert actualRoot to models.JSONObject for comparison
-	actualAsJSONObject := convertToModelTypes(actualRoot).(models.JSONObject)
+	// In our implementation, the parser already returns models.JSONObject
+	actualAsJSONObject := actualRoot
 	
 	if !reflect.DeepEqual(actualAsJSONObject, expectedRoot) {
 		t.Errorf("Parse() root = %v, want %v", actualAsJSONObject, expectedRoot)
@@ -219,13 +212,13 @@ func TestParseFile_SimpleObject(t *testing.T) {
 		"price":   json.Number("1200.50"),
 	}
 
-	actualRoot, ok := ir.Root.(map[string]interface{})
+	actualRoot, ok := ir.Root.(models.JSONObject)
 	if !ok {
-		t.Fatalf("ParseFile() root is not a map[string]interface{}, got %T", ir.Root)
+		t.Fatalf("ParseFile() root is not a models.JSONObject, got %T", ir.Root)
 	}
 
-	// Convert actualRoot to models.JSONObject for comparison
-	actualAsJSONObject := convertToModelTypes(actualRoot).(models.JSONObject)
+	// In our implementation, the parser already returns models.JSONObject
+	actualAsJSONObject := actualRoot
 	
 	if !reflect.DeepEqual(actualAsJSONObject, expectedRoot) {
 		t.Errorf("ParseFile() root = %v, want %v", actualAsJSONObject, expectedRoot)
