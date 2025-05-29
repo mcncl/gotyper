@@ -59,6 +59,7 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 		}
 	}
 
+	rootValue = normalizeJSONValue(rootValue) // Normalize the root value
 	ir := models.IntermediateRepresentation{
 		Root: rootValue,
 	}
@@ -68,9 +69,9 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 	// Objects are map[string]interface{} (which is models.JSONObject).
 	// Arrays are []interface{} (which is models.JSONArray).
 	switch rootValue.(type) {
-	case map[string]interface{}:
+	case models.JSONObject:
 		ir.RootIsArray = false
-	case []interface{}:
+	case models.JSONArray:
 		ir.RootIsArray = true
 	case nil: // Top-level JSON 'null'
 		ir.RootIsArray = false
@@ -79,6 +80,27 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 	}
 
 	return ir, nil
+}
+
+// normalizeJSONValue recursively converts raw map[string]interface{} and []interface{}
+// into models.JSONObject and models.JSONArray respectively.
+func normalizeJSONValue(val models.JSONValue) models.JSONValue {
+    switch v := val.(type) {
+    case map[string]interface{}:
+        obj := make(models.JSONObject, len(v))
+        for key, value := range v {
+            obj[key] = normalizeJSONValue(value)
+        }
+        return obj
+    case []interface{}:
+        arr := make(models.JSONArray, len(v))
+        for i, value := range v {
+            arr[i] = normalizeJSONValue(value)
+        }
+        return arr
+    default:
+        return v // Primitives (string, json.Number, bool, nil) are returned as is
+    }
 }
 
 // ParseString is a helper function to parse JSON from a string.
