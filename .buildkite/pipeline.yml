@@ -8,28 +8,28 @@ steps:
       - label: ":go: Build"
         plugins:
           - docker-compose#v5.2.0:
-              config: .buildkite/docker-compose.yml
+              config: .buildkite/compose.yml
               run: golang
               command: ["go", "build", "-v", "./..."]
 
       - label: ":test_tube: Test"
         plugins:
           - docker-compose#v5.2.0:
-              config: .buildkite/docker-compose.yml
+              config: .buildkite/compose.yml
               run: golang
               command: ["go", "test", "-v", "./..."]
 
       - label: ":mag: Vet"
         plugins:
           - docker-compose#v5.2.0:
-              config: .buildkite/docker-compose.yml
+              config: .buildkite/compose.yml
               run: golang
               command: ["go", "vet", "./..."]
 
       - label: ":lint-roller: Lint"
         plugins:
           - docker-compose#v5.2.0:
-              config: .buildkite/docker-compose.yml
+              config: .buildkite/compose.yml
               run: golangci-lint
               command: ["golangci-lint", "run", "--timeout=5m"]
               tty: true
@@ -55,7 +55,7 @@ steps:
   - label: ":goreleaser: Release"
     plugins:
       - docker-compose#v5.2.0:
-          config: .buildkite/docker-compose.yml
+          config: .buildkite/compose.yml
           run: goreleaser
           command: ["release", "--clean"]
           env:
