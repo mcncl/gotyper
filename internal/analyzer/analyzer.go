@@ -24,9 +24,9 @@ var (
 // Analyzer analyzes JSON and determines Go types and struct definitions
 
 type Analyzer struct {
-		// structNames tracks generated struct names to avoid collisions
+	// structNames tracks generated struct names to avoid collisions
 	structNames map[string]int
-		// analysisResult holds discovered structs and imports
+	// analysisResult holds discovered structs and imports
 	analysisResult models.AnalysisResult
 }
 
@@ -54,12 +54,9 @@ func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName 
 	var err error
 
 	if ir.Root == nil {
-		// Handle top-level null JSON
-		rootTypeInfo = models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}
-		
 		// Create a struct to wrap the null value
 		candidateStructDef := models.StructDef{
-			Name:   rootStructName,
+			Name: rootStructName,
 			Fields: []models.FieldInfo{
 				{
 					JSONKey: "value",
@@ -78,12 +75,12 @@ func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName 
 		if err != nil {
 			return models.AnalysisResult{}, fmt.Errorf("failed to analyze root node: %w", err)
 		}
-		
+
 		// Handle primitive values at the root level by wrapping them in a struct
 		if !ir.RootIsArray && rootTypeInfo.Kind != models.Struct {
 			// Create a struct to wrap the primitive value
 			candidateStructDef := models.StructDef{
-				Name:   rootStructName,
+				Name: rootStructName,
 				Fields: []models.FieldInfo{
 					{
 						JSONKey: "value",
@@ -97,31 +94,6 @@ func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName 
 			a.analysisResult.Structs = append(a.analysisResult.Structs, candidateStructDef)
 			rootTypeInfo = models.TypeInfo{Kind: models.Struct, Name: rootStructName, StructName: rootStructName}
 		}
-	}
-
-	// If the root itself is a simple type (not a struct or slice of structs directly defined at root),
-	// we might still want to wrap it in a root struct for consistency, or the generator can handle it.
-	// For now, if the root resolved to a struct, it would have been added to a.analysisResult.Structs.
-	// If it's an array of structs, those structs (and the element struct) would also be added.
-
-	// If the root is an object or array of objects, a StructDef for it (or its elements) should have been created.
-	// If the root is a primitive or an array of primitives, no top-level struct is strictly needed by analyzeNode unless forced.
-	// We ensure at least one struct if the root is an object, or if it's an array of objects.
-	if ir.RootIsArray {
-		// If root is an array, and rootTypeInfo is a slice of structs, the element struct is already defined.
-		// We might want a named type for the slice itself, e.g., type RootType []ElementType
-		// This is more of a generator concern. The analyzer's job is to define ElementType.
-		// If no structs were generated (e.g. array of primitives), and a root struct is desired, create one.
-		if len(a.analysisResult.Structs) == 0 && rootTypeInfo.Kind == models.Slice && rootTypeInfo.SliceElementType != nil && rootTypeInfo.SliceElementType.Kind != models.Struct {
-			// This case is tricky: if it's like `[1,2,3]`, what struct to make?
-			// The current design focuses on struct generation from JSON objects.
-			// Perhaps the generator should handle `type RootType []int` directly.
-		}
-	} else if rootTypeInfo.Kind != models.Struct && ir.Root != nil { // Root is not an array and not a struct (e.g. primitive at root)
-		// If the root is a primitive, we create a struct with one field for it.
-		// Example: JSON `"hello"` -> `type RootType struct { Value string `json:"value"` }` (or similar)
-		// This is a policy decision. For now, analyzeNode will not create a struct for a root primitive.
-		// The generator might need to handle this or we adjust analyzeNode.
 	}
 
 	// Handle IsRoot flag for structs
@@ -308,7 +280,7 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 		}
 		elementInfos[i] = typeInfo
 	}
-	
+
 	// Handle deeply nested arrays by flattening the type representation
 	if len(elementInfos) > 0 && elementInfos[0].Kind == models.Slice {
 		// Check if all elements are slices
@@ -319,7 +291,7 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 				break
 			}
 		}
-		
+
 		if allSlices {
 			// Use the first element's slice element type
 			innerType := elementInfos[0].SliceElementType
@@ -536,10 +508,10 @@ func areStructDefsEquivalent(s1, s2 *models.StructDef) bool {
 func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedName string) (models.StructDef, error) {
 	// Create a map to track all unique fields across all objects
 	allFields := make(map[string]models.FieldInfo)
-	
+
 	// Track nested object fields that need merging
 	nestedObjectFields := make(map[string][]models.JSONObject)
-	
+
 	// Process each object and collect all unique fields
 	for _, obj := range objects {
 		// Extract keys and sort them for deterministic processing
@@ -548,14 +520,14 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		
+
 		// Process each field in the object
 		for _, key := range keys {
 			val := obj[key]
 			goFieldName := jsonKeyToPascalCase(key)
 			// For nested structs, suggest a name based on the current struct name and field name
 			nestedStructSuggestedName := suggestedName + goFieldName
-			
+
 			// Special handling for nested objects that might need merging
 			if nestedObj, isObject := val.(models.JSONObject); isObject {
 				// Add this nested object to our tracking map for later merging
@@ -563,24 +535,24 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 					nestedObjectFields[key] = make([]models.JSONObject, 0)
 				}
 				nestedObjectFields[key] = append(nestedObjectFields[key], nestedObj)
-				
+
 				// We'll process this field after collecting all instances
 				continue
 			}
-			
+
 			// For non-object fields, process normally
 			fieldTypeInfo, err := a.analyzeNode(val, nestedStructSuggestedName, false, false)
 			if err != nil {
 				return models.StructDef{}, fmt.Errorf("failed to analyze field '%s' in merged object: %w", key, err)
 			}
-			
+
 			// Handle nullable fields
 			if val == nil || fieldTypeInfo.Kind == models.Struct || fieldTypeInfo.Kind == models.Slice || fieldTypeInfo.Kind == models.Interface {
 				fieldTypeInfo.IsPointer = true
 			}
-			
+
 			jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
-			
+
 			// Create field info
 			fieldInfo := models.FieldInfo{
 				JSONKey: key,
@@ -588,32 +560,32 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 				GoType:  fieldTypeInfo,
 				JSONTag: jsonTag,
 			}
-			
+
 			// Add to our map of all fields
 			allFields[key] = fieldInfo
 		}
 	}
-	
+
 	// Now process all the nested object fields we collected
 	for key, nestedObjects := range nestedObjectFields {
 		if len(nestedObjects) > 0 {
 			goFieldName := jsonKeyToPascalCase(key)
 			nestedStructSuggestedName := suggestedName + goFieldName
-			
+
 			// Create a merged struct for this nested field
 			mergedNestedStruct, err := a.createMergedStructDef(nestedObjects, nestedStructSuggestedName)
 			if err != nil {
 				return models.StructDef{}, fmt.Errorf("failed to create merged struct for nested field '%s': %w", key, err)
 			}
-			
+
 			// Add the merged struct to our results
 			typeInfo := a.findOrAddStructDef(mergedNestedStruct, nestedStructSuggestedName, false, false)
-			
+
 			// Make it a pointer since it's a nested object
 			typeInfo.IsPointer = true
-			
+
 			jsonTag := fmt.Sprintf("`json:\"%s,omitempty\"`", key)
-			
+
 			// Create field info for this nested object
 			fieldInfo := models.FieldInfo{
 				JSONKey: key,
@@ -621,12 +593,12 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 				GoType:  typeInfo,
 				JSONTag: jsonTag,
 			}
-			
+
 			// Add to our map of all fields
 			allFields[key] = fieldInfo
 		}
 	}
-	
+
 	// Convert the map of fields to a slice
 	fields := make([]models.FieldInfo, 0, len(allFields))
 	// Extract keys and sort them for deterministic field order
@@ -635,12 +607,12 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	
+
 	// Add fields in sorted order
 	for _, key := range keys {
 		fields = append(fields, allFields[key])
 	}
-	
+
 	// Create the merged struct definition
 	return models.StructDef{
 		Name:   suggestedName, // This is just a suggestion, will be finalized by findOrAddStructDef
@@ -681,7 +653,7 @@ func (a *Analyzer) findOrAddStructDef(candidateStructDef models.StructDef, sugge
 
 	// Update the candidate with the final name
 	candidateStructDef.Name = finalName
-	
+
 	// If this struct represents an array element, it should never be marked as root
 	// The array itself is the root, not the element struct
 	if isArrayElement {

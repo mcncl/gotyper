@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,8 +18,11 @@ func TestCLI_FileInputOutput(t *testing.T) {
 	// Create a temporary directory for test files
 	tempDir, err := os.MkdirTemp("", "gotyper-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
+		}
+	}()
 	// Create a test JSON file
 	jsonContent := `{
 		"name": "John Doe",
@@ -61,7 +65,7 @@ func TestCLI_FileInputOutput(t *testing.T) {
 	code := string(generatedCode)
 	assert.Contains(t, code, "package testpackage")
 	assert.Contains(t, code, "type RootType struct")
-	
+
 	// Check for field presence without exact whitespace matching
 	assert.Regexp(t, `Name\s+string\s+\x60json:"name"\x60`, code)
 	assert.Regexp(t, `Age\s+int64\s+\x60json:"age"\x60`, code)

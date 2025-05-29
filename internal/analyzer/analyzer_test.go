@@ -187,9 +187,10 @@ func TestAnalyze_EmptyObjectAndArray(t *testing.T) {
 	// Find the root struct and empty object struct
 	var rootStruct, emptyObjStruct models.StructDef
 	for _, s := range result.Structs {
-		if s.Name == "TestEmpty" {
+		switch s.Name {
+		case "TestEmpty":
 			rootStruct = s
-		} else if s.Name == "TestEmptyEmptyObj" {
+		case "TestEmptyEmptyObj":
 			emptyObjStruct = s
 		}
 	}
@@ -212,10 +213,10 @@ func TestAnalyze_EmptyObjectAndArray(t *testing.T) {
 	}
 
 	emptyArrTypeInfo := models.TypeInfo{
-		Kind:            models.Slice,
-		Name:            "[]interface{}",
+		Kind:             models.Slice,
+		Name:             "[]interface{}",
 		SliceElementType: &emptyArrElementType,
-		IsPointer:       true,
+		IsPointer:        true,
 	}
 
 	expectedFields := []models.FieldInfo{

@@ -174,7 +174,9 @@ func BenchmarkWideStructures(b *testing.B) {
 				require.NoError(b, err, "CLI command failed: %s", string(output))
 
 				// Clean up output file for next iteration
-				os.Remove(outputFile)
+				if err := os.Remove(outputFile); err != nil {
+					fmt.Fprintf(os.Stderr, "Error removing file: %v\n", err)
+				}
 			}
 		})
 	}
@@ -242,7 +244,9 @@ func BenchmarkArrayProcessing(b *testing.B) {
 				require.NoError(b, err, "CLI command failed: %s", string(output))
 
 				// Clean up output file for next iteration
-				os.Remove(outputFile)
+				if err := os.Remove(outputFile); err != nil {
+					fmt.Fprintf(os.Stderr, "Error removing file: %v\n", err)
+				}
 			}
 		})
 	}

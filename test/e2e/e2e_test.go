@@ -21,7 +21,11 @@ func TestEndToEnd_ComplexNestedStructures(t *testing.T) {
 	// Create a temporary directory for test files
 	tempDir, err := os.MkdirTemp("", "gotyper-e2e")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
+		}
+	}()
 
 	// Complex nested JSON with various types
 	jsonContent := `{
@@ -194,7 +198,7 @@ func generateLargeJSON(t testing.TB, filePath string, itemCount int) {
 			"price":       rng.Float64() * 1000,
 			"quantity":    rng.Intn(100),
 			"active":      rng.Intn(2) == 1,
-			"tags":        []string{"tag1", "tag2", "tag3"}[0:rng.Intn(3)+1],
+			"tags":        []string{"tag1", "tag2", "tag3"}[0 : rng.Intn(3)+1],
 			"metadata": map[string]interface{}{
 				"source":      "test",
 				"priority":    rng.Intn(5) + 1,
@@ -224,7 +228,11 @@ func BenchmarkLargeJSON(b *testing.B) {
 	// Create a temporary directory for test files
 	tempDir, err := os.MkdirTemp("", "gotyper-bench")
 	require.NoError(b, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
+		}
+	}()
 
 	// Generate large JSON files of different sizes
 	sizes := []struct {
@@ -259,7 +267,9 @@ func BenchmarkLargeJSON(b *testing.B) {
 				require.NoError(b, err, "Output file was not created")
 
 				// Clean up output file for next iteration
-				os.Remove(outputFile)
+				if err := os.Remove(outputFile); err != nil {
+					fmt.Fprintf(os.Stderr, "Error removing file: %v\n", err)
+				}
 			}
 		})
 	}
