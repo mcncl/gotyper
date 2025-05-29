@@ -55,7 +55,7 @@ gotyper
 
 The interactive mode allows you to quickly convert JSON to Go structs without creating temporary files:
 
-1. Run `gotyper` with no arguments (or with the `-I` flag)
+1. Run `gotyper` with the `-I` flag
 2. Paste your JSON data at the prompt
 3. Press Ctrl+D (Unix/Mac) or Ctrl+Z followed by Enter (Windows) to signal the end of input
 4. The generated Go structs will be displayed immediately
