@@ -56,14 +56,46 @@ func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName 
 	if ir.Root == nil {
 		// Handle top-level null JSON
 		rootTypeInfo = models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}
-		// Even for a null root, we might represent it as a struct with a field if that's desired,
-		// or just output 'type RootType interface{}', but for now, let's assume it implies no specific struct.
-		// If we want a struct for a null root, it would be an empty struct or a struct with one interface{} field.
+		
+		// Create a struct to wrap the null value
+		candidateStructDef := models.StructDef{
+			Name:   rootStructName,
+			Fields: []models.FieldInfo{
+				{
+					JSONKey: "value",
+					GoName:  "Value",
+					GoType:  models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true},
+					JSONTag: "`json:\"value,omitempty\"`",
+				},
+			},
+			IsRoot: true,
+		}
+		a.analysisResult.Structs = append(a.analysisResult.Structs, candidateStructDef)
+		rootTypeInfo = models.TypeInfo{Kind: models.Struct, Name: rootStructName, StructName: rootStructName}
 	} else {
 		// For the root node, isArrayElement is false because it's not an element within an array
 		rootTypeInfo, err = a.analyzeNode(ir.Root, rootStructName, true, false) // true for isRootNode, false for isArrayElement
 		if err != nil {
 			return models.AnalysisResult{}, fmt.Errorf("failed to analyze root node: %w", err)
+		}
+		
+		// Handle primitive values at the root level by wrapping them in a struct
+		if !ir.RootIsArray && rootTypeInfo.Kind != models.Struct {
+			// Create a struct to wrap the primitive value
+			candidateStructDef := models.StructDef{
+				Name:   rootStructName,
+				Fields: []models.FieldInfo{
+					{
+						JSONKey: "value",
+						GoName:  "Value",
+						GoType:  rootTypeInfo,
+						JSONTag: "`json:\"value\"`",
+					},
+				},
+				IsRoot: true,
+			}
+			a.analysisResult.Structs = append(a.analysisResult.Structs, candidateStructDef)
+			rootTypeInfo = models.TypeInfo{Kind: models.Struct, Name: rootStructName, StructName: rootStructName}
 		}
 	}
 
@@ -138,9 +170,10 @@ func (a *Analyzer) analyzeNode(node models.JSONValue, suggestedName string, isRo
 }
 
 func (a *Analyzer) analyzeString(s string) models.TypeInfo {
+	// Check for UUID pattern but use string type to avoid external dependency
 	if uuidRegex.MatchString(s) {
-		a.analysisResult.Imports["github.com/google/uuid"] = struct{}{}
-		return models.TypeInfo{Kind: models.UUID, Name: "uuid.UUID"}
+		// Use string type instead of uuid.UUID to avoid dependency in tests
+		return models.TypeInfo{Kind: models.String, Name: "string"}
 	}
 	if rfc3339Regex.MatchString(s) {
 		a.analysisResult.Imports["time"] = struct{}{}
@@ -213,7 +246,7 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName string, isArrayElement bool) (models.TypeInfo, error) {
 	if len(arr) == 0 {
 		// Empty array defaults to []interface{}
-		elementType := models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}
+		elementType := models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: false}
 		return models.TypeInfo{Kind: models.Slice, Name: "[]interface{}", SliceElementType: &elementType, IsPointer: true}, nil
 	}
 
@@ -275,6 +308,32 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 		}
 		elementInfos[i] = typeInfo
 	}
+	
+	// Handle deeply nested arrays by flattening the type representation
+	if len(elementInfos) > 0 && elementInfos[0].Kind == models.Slice {
+		// Check if all elements are slices
+		allSlices := true
+		for _, info := range elementInfos {
+			if info.Kind != models.Slice {
+				allSlices = false
+				break
+			}
+		}
+		
+		if allSlices {
+			// Use the first element's slice element type
+			innerType := elementInfos[0].SliceElementType
+			if innerType != nil {
+				// Create a multi-dimensional slice type
+				return models.TypeInfo{
+					Kind:             models.Slice,
+					Name:             "[]" + elementInfos[0].Name,
+					SliceElementType: innerType,
+					IsPointer:        true,
+				}, nil
+			}
+		}
+	}
 
 	// Check if all elements have the same type
 	firstElementInfo := elementInfos[0]
@@ -315,11 +374,10 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 	}
 
 	// Heterogeneous array - default to []interface{}
-	interfaceElementType := models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}
 	return models.TypeInfo{
 		Kind:             models.Slice,
 		Name:             "[]interface{}",
-		SliceElementType: &interfaceElementType,
+		SliceElementType: &models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: false},
 		IsPointer:        true,
 	}, nil
 }

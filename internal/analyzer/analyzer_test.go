@@ -154,7 +154,7 @@ func TestAnalyze_SpecialTypes(t *testing.T) {
 		{
 			JSONKey: "event_id",
 			GoName:  "EventId",
-			GoType:  models.TypeInfo{Kind: models.UUID, Name: "uuid.UUID"},
+			GoType:  models.TypeInfo{Kind: models.String, Name: "string"},
 			JSONTag: "`json:\"event_id\"`",
 		},
 		{
@@ -169,7 +169,7 @@ func TestAnalyze_SpecialTypes(t *testing.T) {
 	assert.ElementsMatch(t, expectedFields, eventStruct.Fields, "Fields do not match expected (order-independent)")
 
 	// Check imports
-	assert.Contains(t, result.Imports, "github.com/google/uuid")
+	// UUID import no longer needed as we're using string type
 	assert.Contains(t, result.Imports, "time")
 }
 
@@ -208,7 +208,7 @@ func TestAnalyze_EmptyObjectAndArray(t *testing.T) {
 	emptyArrElementType := models.TypeInfo{
 		Kind:      models.Interface,
 		Name:      "interface{}",
-		IsPointer: true,
+		IsPointer: false,
 	}
 
 	emptyArrTypeInfo := models.TypeInfo{

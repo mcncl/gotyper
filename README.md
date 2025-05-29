@@ -1,5 +1,9 @@
 # GoTyper
 
+<p align="center">
+    <img src="./images/icon.png" alt="GoTyper" width="200"/>
+</p>
+
 A command-line tool that converts JSON to Go structs with appropriate JSON tags.
 
 ## Features
