@@ -1,0 +1,52 @@
+[
+  {
+    "id": 1,
+    "name": "Smartphone",
+    "price": 799.99,
+    "category": "Electronics",
+    "in_stock": true,
+    "specs": {
+      "brand": "TechCorp",
+      "model": "X2000",
+      "color": "Black",
+      "storage": "128GB",
+      "dimensions": {
+        "height": 15.2,
+        "width": 7.1,
+        "depth": 0.8
+      }
+    }
+  },
+  {
+    "id": 2,
+    "name": "Laptop",
+    "price": 1299.99,
+    "category": "Electronics",
+    "in_stock": false,
+    "specs": {
+      "brand": "TechCorp",
+      "model": "UltraBook Pro",
+      "color": "Silver",
+      "storage": "512GB SSD",
+      "dimensions": {
+        "height": 1.5,
+        "width": 30.5,
+        "depth": 21.2
+      }
+    }
+  },
+  {
+    "id": 3,
+    "name": "Headphones",
+    "price": 199.99,
+    "category": "Audio",
+    "in_stock": true,
+    "specs": {
+      "brand": "SoundWave",
+      "model": "NoiseCancel 3",
+      "color": "White",
+      "wireless": true,
+      "battery_life": "24 hours"
+    }
+  }
+]

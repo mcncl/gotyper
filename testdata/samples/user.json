@@ -1,0 +1,33 @@
+{
+  "user": {
+    "id": 12345,
+    "name": "John Doe",
+    "email": "john.doe@example.com",
+    "active": true,
+    "created_at": "2025-01-15T14:30:45Z",
+    "profile": {
+      "bio": "Software engineer and open source contributor",
+      "location": "San Francisco, CA",
+      "avatar_url": "https://example.com/avatar.jpg",
+      "social": {
+        "twitter": "@johndoe",
+        "github": "johndoe",
+        "linkedin": "john-doe-123"
+      }
+    },
+    "preferences": {
+      "theme": "dark",
+      "notifications": {
+        "email": true,
+        "push": false
+      },
+      "timezone": "America/Los_Angeles"
+    },
+    "roles": ["user", "admin"],
+    "stats": {
+      "posts": 42,
+      "followers": 1024,
+      "following": 256
+    }
+  }
+}
