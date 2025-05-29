@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "groupName": "go dependencies",
+      "groupSlug": "go-deps"
+    }
+  ],
+  "gomod": {
+    "enabled": true
+  },
+  "labels": ["dependencies"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 5,
+  "branchPrefix": "renovate/",
+  "semanticCommits": "enabled",
+  "dependencyDashboard": true
+}
