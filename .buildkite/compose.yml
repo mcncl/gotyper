@@ -9,7 +9,7 @@ services:
       - ~/.cache/golangci-lint/v1.54.1:/root/.cache
   
   goreleaser:
-    image: goreleaser/goreleaser:v2.0.0
+    image: goreleaser/goreleaser:v2.9.0
     environment:
       - BUILDKITE_AGENT_JOB_API_SOCKET
       - BUILDKITE_AGENT_JOB_API_TOKEN
