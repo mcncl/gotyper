@@ -9,6 +9,7 @@ A command-line tool that converts JSON to Go structs with appropriate JSON tags.
 ## Features
 
 - Converts JSON from files or stdin to Go structs
+- Interactive mode for quick, ad-hoc conversions
 - Detects appropriate Go types including special types like UUIDs and timestamps
 - Handles nested objects and arrays
 - Generates proper JSON tags with omitempty where appropriate
@@ -31,6 +32,10 @@ gotyper -i input.json -o output.go
 
 # From stdin
 cat input.json | gotyper > output.go
+
+# Interactive mode (just run gotyper with no arguments)
+gotyper
+# Then paste your JSON and press Ctrl+D (or Ctrl+Z on Windows) when done
 ```
 
 ### Command Line Options
@@ -43,7 +48,17 @@ cat input.json | gotyper > output.go
   -f, --format           Format the output code according to Go standards. (default: true)
   -d, --debug            Enable debug logging.
   -v, --version          Show version information.
+  -I, --interactive      Run in interactive mode, allowing direct JSON input with Ctrl+D to process.
 ```
+
+### Interactive Mode
+
+The interactive mode allows you to quickly convert JSON to Go structs without creating temporary files:
+
+1. Run `gotyper` with no arguments (or with the `-I` flag)
+2. Paste your JSON data at the prompt
+3. Press Ctrl+D (Unix/Mac) or Ctrl+Z followed by Enter (Windows) to signal the end of input
+4. The generated Go structs will be displayed immediately
 
 ## Examples
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -17,13 +18,14 @@ import (
 
 // CLI defines the command-line interface
 var CLI struct {
-	Input     string `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
-	Output    string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
-	Package   string `help:"Package name for generated code." short:"p" default:"main"`
-	RootName  string `help:"Name for the root struct." short:"r" default:"RootType"`
-	Format    bool   `help:"Format the output code according to Go standards." short:"f" default:"true"`
-	Debug     bool   `help:"Enable debug logging." short:"d"`
-	Version   bool   `help:"Show version information." short:"v"`
+	Input       string `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
+	Output      string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
+	Package     string `help:"Package name for generated code." short:"p" default:"main"`
+	RootName    string `help:"Name for the root struct." short:"r" default:"RootType"`
+	Format      bool   `help:"Format the output code according to Go standards." short:"f" default:"true"`
+	Debug       bool   `help:"Enable debug logging." short:"d"`
+	Version     bool   `help:"Show version information." short:"v"`
+	Interactive bool   `help:"Run in interactive mode, allowing direct JSON input with Ctrl+D to process." short:"I"`
 }
 
 // Context holds the runtime context
@@ -43,6 +45,11 @@ func main() {
 		kong.Description("A tool to convert JSON to Go structs"),
 		kong.UsageOnError(),
 	)
+
+	// Check if no arguments provided and set interactive mode by default
+	if len(os.Args) == 1 {
+		CLI.Interactive = true
+	}
 
 	// Parse the command line arguments
 	ctx, err := parser.Parse(os.Args[1:])
@@ -127,12 +134,18 @@ func parseInput() (models.IntermediateRepresentation, error) {
 		return models.IntermediateRepresentation{}, errors.NewInputError("failed to access stdin", err)
 	}
 
+	// Interactive mode or piped input
 	if (stdinInfo.Mode() & os.ModeCharDevice) != 0 {
-		// No data provided on stdin
+		// Terminal is interactive (not piped)
+		if CLI.Interactive {
+			// Interactive mode
+			return readInteractiveInput()
+		}
+		// No data provided on stdin and not in interactive mode
 		return models.IntermediateRepresentation{}, errors.NewInputError("no input provided", errors.ErrNoInput)
 	}
 
-	// Read from stdin
+	// Read from stdin (piped input)
 	jsonData, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return models.IntermediateRepresentation{}, errors.NewInputError("failed to read from stdin", err)
@@ -163,4 +176,35 @@ func writeOutput(code string) error {
 		return errors.NewOutputError("failed to write to stdout", err)
 	}
 	return nil
+}
+
+// readInteractiveInput provides an interactive mode for users to paste JSON
+// and signal completion with Ctrl+D (EOF)
+func readInteractiveInput() (models.IntermediateRepresentation, error) {
+	fmt.Fprintln(os.Stderr, "GoTyper Interactive Mode")
+	fmt.Fprintln(os.Stderr, "Paste your JSON below and press Ctrl+D (or Ctrl+Z on Windows) when done:")
+
+	// Read all input until EOF (Ctrl+D)
+	reader := bufio.NewReader(os.Stdin)
+	var jsonBuilder strings.Builder
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err == io.EOF {
+			// End of input
+			break
+		}
+		if err != nil {
+			return models.IntermediateRepresentation{}, errors.NewInputError("error reading input", err)
+		}
+		jsonBuilder.WriteString(line)
+	}
+
+	jsonData := jsonBuilder.String()
+	if len(jsonData) == 0 {
+		return models.IntermediateRepresentation{}, errors.NewInputError("empty input received", errors.ErrEmptyInput)
+	}
+
+	fmt.Fprintln(os.Stderr, "\nProcessing JSON...")
+	return parser.ParseString(jsonData)
 }
