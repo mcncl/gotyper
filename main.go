@@ -178,7 +178,7 @@ func parseInput() (models.IntermediateRepresentation, error) {
 func writeOutput(code string) error {
 	if CLI.Output != "" {
 		// Write to file
-		err := os.WriteFile(CLI.Output, []byte(code), 0644)
+		err := os.WriteFile(CLI.Output, []byte(code), 0o644)
 		if err != nil {
 			return errors.NewOutputError(fmt.Sprintf("failed to write to file '%s'", CLI.Output), err)
 		}

@@ -75,7 +75,7 @@ func TestGenerateStructs_NestedStructs(t *testing.T) {
 					{
 						JSONKey: "profile",
 						GoName:  "Profile",
-						GoType:  models.TypeInfo{
+						GoType: models.TypeInfo{
 							Kind:       models.Struct,
 							Name:       "UserProfile",
 							StructName: "UserProfile",
@@ -160,7 +160,7 @@ func TestGenerateStructs_WithImports(t *testing.T) {
 		},
 		Imports: map[string]struct{}{
 			"github.com/google/uuid": {},
-			"time":                  {},
+			"time":                   {},
 		},
 	}
 

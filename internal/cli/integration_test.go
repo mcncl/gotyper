@@ -46,7 +46,7 @@ func TestCLI_FileInputOutput(t *testing.T) {
 		"active": true
 	}`
 	jsonFile := filepath.Join(tempDir, "test.json")
-	err = os.WriteFile(jsonFile, []byte(jsonContent), 0644)
+	err = os.WriteFile(jsonFile, []byte(jsonContent), 0o644)
 	require.NoError(t, err)
 
 	// Define output file path

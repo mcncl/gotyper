@@ -11,9 +11,8 @@ type JSONArray []JSONValue
 
 // IntermediateRepresentation holds parsed JSON data for analysis
 type IntermediateRepresentation struct {
-	Root       JSONValue
+	Root        JSONValue
 	RootIsArray bool // True if the root of the JSON is an array vs an object
-	
 }
 
 // GoTypeKind represents the inferred Go type
@@ -38,10 +37,10 @@ const (
 
 // TypeInfo holds information about an inferred Go type.
 type TypeInfo struct {
-	Kind             GoTypeKind `json:"kind"`                        // e.g., String, Int, Struct, Slice
-	Name             string     `json:"name"`                        // e.g., "string", "int", "MyStruct", "[]UserDetails"
-	IsPointer        bool       `json:"is_pointer,omitempty"`        // True if the type should be a pointer (e.g., for nullable fields)
-	StructName       string     `json:"struct_name,omitempty"`       // If Kind is Struct, this is the name of the defined struct.
+	Kind             GoTypeKind `json:"kind"`                         // e.g., String, Int, Struct, Slice
+	Name             string     `json:"name"`                         // e.g., "string", "int", "MyStruct", "[]UserDetails"
+	IsPointer        bool       `json:"is_pointer,omitempty"`         // True if the type should be a pointer (e.g., for nullable fields)
+	StructName       string     `json:"struct_name,omitempty"`        // If Kind is Struct, this is the name of the defined struct.
 	SliceElementType *TypeInfo  `json:"slice_element_type,omitempty"` // If Kind is Slice, this describes the element type.
 }
 

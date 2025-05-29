@@ -14,7 +14,6 @@ func TestParse_SimpleObject(t *testing.T) {
 	jsonStr := `{"name": "John Doe", "age": 30, "isStudent": false, "city": null}`
 	reader := strings.NewReader(jsonStr)
 	ir, err := Parse(reader)
-
 	if err != nil {
 		t.Fatalf("Parse() error = %v, wantErr nil", err)
 	}
@@ -49,7 +48,6 @@ func TestParse_SimpleArray(t *testing.T) {
 	jsonStr := `[1, "test", true, null, 3.14]`
 	reader := strings.NewReader(jsonStr)
 	ir, err := Parse(reader)
-
 	if err != nil {
 		t.Fatalf("Parse() error = %v, wantErr nil", err)
 	}
@@ -83,7 +81,6 @@ func TestParse_NestedObject(t *testing.T) {
 	jsonStr := `{"user": {"name": "Jane Doe", "id": 123}, "active": true, "tags": ["go", "json"]}`
 	reader := strings.NewReader(jsonStr)
 	ir, err := Parse(reader)
-
 	if err != nil {
 		t.Fatalf("Parse() error = %v, wantErr nil", err)
 	}
@@ -268,7 +265,6 @@ func TestParse_RootPrimitives(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := strings.NewReader(tc.jsonStr)
 			ir, err := Parse(reader)
-
 			if err != nil {
 				t.Fatalf("Parse() error = %v, wantErr nil for %s", err, tc.name)
 			}

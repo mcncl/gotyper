@@ -39,15 +39,15 @@ func TestIntegration_ParserAnalyzerGenerator(t *testing.T) {
 	expectedCode := `package main
 
 type User struct {
-	IsActive bool         `+ "`json:\"is_active\"`" + `
-	Profile  *UserProfile `+ "`json:\"profile,omitempty\"`" + `
-	UserId   int64        `+ "`json:\"user_id\"`" + `
-	Username string       `+ "`json:\"username\"`" + `
+	IsActive bool         ` + "`json:\"is_active\"`" + `
+	Profile  *UserProfile ` + "`json:\"profile,omitempty\"`" + `
+	UserId   int64        ` + "`json:\"user_id\"`" + `
+	Username string       ` + "`json:\"username\"`" + `
 }
 
 type UserProfile struct {
-	Email    string `+ "`json:\"email\"`" + `
-	FullName string `+ "`json:\"full_name\"`" + `
+	Email    string ` + "`json:\"email\"`" + `
+	FullName string ` + "`json:\"full_name\"`" + `
 }
 `
 

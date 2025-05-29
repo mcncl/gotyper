@@ -10,7 +10,7 @@ import (
 )
 
 // Generator creates Go struct definitions from analysis results
-type Generator struct {}
+type Generator struct{}
 
 // NewGenerator creates a new Generator
 func NewGenerator() *Generator {

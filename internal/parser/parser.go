@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	stderrors "errors" // Standard errors package
+	stderrors "errors"                         // Standard errors package
 	"github.com/mcncl/gotyper/internal/errors" // Custom errors package
 	"github.com/mcncl/gotyper/internal/models"
 )
@@ -88,22 +88,22 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 
 // normalizeJSONValue converts raw JSON types into our model types
 func normalizeJSONValue(val models.JSONValue) models.JSONValue {
-    switch v := val.(type) {
-    case map[string]interface{}:
-        obj := make(models.JSONObject, len(v))
-        for key, value := range v {
-            obj[key] = normalizeJSONValue(value)
-        }
-        return obj
-    case []interface{}:
-        arr := make(models.JSONArray, len(v))
-        for i, value := range v {
-            arr[i] = normalizeJSONValue(value)
-        }
-        return arr
-    default:
-        return v // Primitives (string, json.Number, bool, nil) are returned as is
-    }
+	switch v := val.(type) {
+	case map[string]interface{}:
+		obj := make(models.JSONObject, len(v))
+		for key, value := range v {
+			obj[key] = normalizeJSONValue(value)
+		}
+		return obj
+	case []interface{}:
+		arr := make(models.JSONArray, len(v))
+		for i, value := range v {
+			arr[i] = normalizeJSONValue(value)
+		}
+		return arr
+	default:
+		return v // Primitives (string, json.Number, bool, nil) are returned as is
+	}
 }
 
 // ParseString parses JSON from a string
