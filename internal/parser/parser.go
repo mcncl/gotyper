@@ -137,7 +137,11 @@ func ParseFile(filePath string) (models.IntermediateRepresentation, error) {
 			err,
 		)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing file: %v\n", err)
+		}
+	}()
 
 	// Check for empty file before parsing
 	stat, err := file.Stat()

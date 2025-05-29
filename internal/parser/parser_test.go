@@ -10,27 +10,6 @@ import (
 	"github.com/mcncl/gotyper/internal/models"
 )
 
-// convertToModelTypes recursively converts map[string]interface{} and []interface{}
-// to models.JSONObject and models.JSONArray for proper type comparison in tests
-func convertToModelTypes(value interface{}) interface{} {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		result := make(models.JSONObject)
-		for k, val := range v {
-			result[k] = convertToModelTypes(val)
-		}
-		return result
-	case []interface{}:
-		result := make(models.JSONArray, len(v))
-		for i, val := range v {
-			result[i] = convertToModelTypes(val)
-		}
-		return result
-	default:
-		return v
-	}
-}
-
 func TestParse_SimpleObject(t *testing.T) {
 	jsonStr := `{"name": "John Doe", "age": 30, "isStudent": false, "city": null}`
 	reader := strings.NewReader(jsonStr)
@@ -60,7 +39,7 @@ func TestParse_SimpleObject(t *testing.T) {
 	// In our implementation, the parser already returns models.JSONObject
 	// so we can directly compare with the expected result
 	actualAsJSONObject := actualRoot
-	
+
 	if !reflect.DeepEqual(actualAsJSONObject, expectedRoot) {
 		t.Errorf("Parse() root = %v, want %v", actualAsJSONObject, expectedRoot)
 	}
@@ -94,7 +73,7 @@ func TestParse_SimpleArray(t *testing.T) {
 
 	// In our implementation, the parser already returns models.JSONArray
 	actualAsJSONArray := actualRoot
-	
+
 	if !reflect.DeepEqual(actualAsJSONArray, expectedRoot) {
 		t.Errorf("Parse() root = %v, want %v", actualAsJSONArray, expectedRoot)
 	}
@@ -129,7 +108,7 @@ func TestParse_NestedObject(t *testing.T) {
 
 	// In our implementation, the parser already returns models.JSONObject
 	actualAsJSONObject := actualRoot
-	
+
 	if !reflect.DeepEqual(actualAsJSONObject, expectedRoot) {
 		t.Errorf("Parse() root = %v, want %v", actualAsJSONObject, expectedRoot)
 	}
@@ -189,7 +168,11 @@ func TestParseFile_SimpleObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name()) // clean up
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("Failed to remove temp file: %v", err)
+		}
+	}()
 
 	if _, err := tmpfile.Write([]byte(content)); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)
@@ -219,7 +202,7 @@ func TestParseFile_SimpleObject(t *testing.T) {
 
 	// In our implementation, the parser already returns models.JSONObject
 	actualAsJSONObject := actualRoot
-	
+
 	if !reflect.DeepEqual(actualAsJSONObject, expectedRoot) {
 		t.Errorf("ParseFile() root = %v, want %v", actualAsJSONObject, expectedRoot)
 	}
@@ -249,8 +232,11 @@ func TestParseFile_EmptyFileContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpfile.Name()) // clean up
-
+	defer func() {
+		if err := os.Remove(tmpfile.Name()); err != nil {
+			t.Logf("Failed to remove temp file: %v", err)
+		}
+	}()
 	// File is created, but nothing is written to it, so it's empty.
 	if err := tmpfile.Close(); err != nil {
 		t.Fatalf("Failed to close temp file: %v", err)

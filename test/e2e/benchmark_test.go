@@ -18,9 +18,9 @@ func generateNestedJSON(depth int, width int) map[string]interface{} {
 	if depth <= 0 {
 		return map[string]interface{}{
 			"leaf_value": "data",
-			"timestamp": time.Now().Format(time.RFC3339),
-			"count":     rand.Intn(100),
-			"enabled":   rand.Intn(2) == 1,
+			"timestamp":  time.Now().Format(time.RFC3339),
+			"count":      rand.Intn(100),
+			"enabled":    rand.Intn(2) == 1,
 		}
 	}
 
@@ -72,8 +72,11 @@ func BenchmarkDeepNesting(b *testing.B) {
 	// Create a temporary directory for test files
 	tempDir, err := os.MkdirTemp("", "gotyper-bench-nesting")
 	require.NoError(b, err)
-	defer os.RemoveAll(tempDir)
-
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
+		}
+	}()
 	// Test different nesting depths
 	depths := []struct {
 		name  string
@@ -110,7 +113,9 @@ func BenchmarkDeepNesting(b *testing.B) {
 				require.NoError(b, err, "CLI command failed: %s", string(output))
 
 				// Clean up output file for next iteration
-				os.Remove(outputFile)
+				if err := os.Remove(outputFile); err != nil {
+					fmt.Fprintf(os.Stderr, "Error removing file: %v\n", err)
+				}
 			}
 		})
 	}
@@ -126,7 +131,11 @@ func BenchmarkWideStructures(b *testing.B) {
 	// Create a temporary directory for test files
 	tempDir, err := os.MkdirTemp("", "gotyper-bench-wide")
 	require.NoError(b, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
+		}
+	}()
 
 	// Test different widths
 	widths := []struct {
@@ -181,7 +190,11 @@ func BenchmarkArrayProcessing(b *testing.B) {
 	// Create a temporary directory for test files
 	tempDir, err := os.MkdirTemp("", "gotyper-bench-arrays")
 	require.NoError(b, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing directory: %v\n", err)
+		}
+	}()
 
 	// Test different array sizes
 	sizes := []struct {
