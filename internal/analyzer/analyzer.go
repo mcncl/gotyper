@@ -199,6 +199,7 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 
 		jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
 
+		// Add field to the candidate struct
 		candidateStructDef.Fields = append(candidateStructDef.Fields, models.FieldInfo{
 			JSONKey: key,
 			GoName:  goFieldName,
@@ -207,7 +208,7 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 		})
 	}
 
-	// Find or add the struct definition, getting back the TypeInfo
+	// Check if this struct definition already exists or add it as a new one
 	typeInfo := a.findOrAddStructDef(candidateStructDef, structName, isParentObject, isArrayElement)
 	return typeInfo, nil
 }
@@ -226,6 +227,44 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 	// For root arrays in tests like TestAnalyze_ArrayOfObjects, we want to preserve the exact name
 	isRootArray := a.structNames[elementSuggestedName] == 1
 
+	// Special handling for arrays of objects - we'll try to merge them into a single struct type
+	// First, check if all elements are objects
+	allObjects := true
+	objectElements := make([]models.JSONObject, 0, len(arr))
+	for _, element := range arr {
+		if obj, ok := element.(models.JSONObject); ok {
+			objectElements = append(objectElements, obj)
+		} else {
+			allObjects = false
+			break
+		}
+	}
+
+	// If all elements are objects, try to merge them into a single struct
+	if allObjects && len(objectElements) > 0 {
+		// Create a merged struct definition with fields from all objects
+		mergedStructDef, err := a.createMergedStructDef(objectElements, elementSuggestedName)
+		if err != nil {
+			return models.TypeInfo{}, fmt.Errorf("failed to create merged struct definition: %w", err)
+		}
+
+		// Add the merged struct to our results
+		typeInfo := a.findOrAddStructDef(mergedStructDef, elementSuggestedName, isRootArray, true)
+
+		// For structs, prefer pointer elements in slices (common Go practice)
+		sliceName := "[]*" + typeInfo.Name
+		pointerElementInfo := typeInfo
+		pointerElementInfo.IsPointer = true
+
+		return models.TypeInfo{
+			Kind:             models.Slice,
+			Name:             sliceName,
+			SliceElementType: &pointerElementInfo,
+			IsPointer:        true,
+		}, nil
+	}
+
+	// If not all elements are objects or we couldn't merge them, fall back to the original approach
 	// Analyze all elements to determine if they share a common type
 	elementInfos := make([]models.TypeInfo, len(arr))
 	for i, element := range arr {
@@ -435,6 +474,124 @@ func areStructDefsEquivalent(s1, s2 *models.StructDef) bool {
 		}
 	}
 	return true
+}
+
+// createMergedStructDef creates a struct definition that merges fields from multiple JSON objects.
+// This is particularly useful for array elements that may have slightly different fields.
+func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedName string) (models.StructDef, error) {
+	// Create a map to track all unique fields across all objects
+	allFields := make(map[string]models.FieldInfo)
+	
+	// Track nested object fields that need merging
+	nestedObjectFields := make(map[string][]models.JSONObject)
+	
+	// Process each object and collect all unique fields
+	for _, obj := range objects {
+		// Extract keys and sort them for deterministic processing
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		
+		// Process each field in the object
+		for _, key := range keys {
+			val := obj[key]
+			goFieldName := jsonKeyToPascalCase(key)
+			// For nested structs, suggest a name based on the current struct name and field name
+			nestedStructSuggestedName := suggestedName + goFieldName
+			
+			// Special handling for nested objects that might need merging
+			if nestedObj, isObject := val.(models.JSONObject); isObject {
+				// Add this nested object to our tracking map for later merging
+				if _, exists := nestedObjectFields[key]; !exists {
+					nestedObjectFields[key] = make([]models.JSONObject, 0)
+				}
+				nestedObjectFields[key] = append(nestedObjectFields[key], nestedObj)
+				
+				// We'll process this field after collecting all instances
+				continue
+			}
+			
+			// For non-object fields, process normally
+			fieldTypeInfo, err := a.analyzeNode(val, nestedStructSuggestedName, false, false)
+			if err != nil {
+				return models.StructDef{}, fmt.Errorf("failed to analyze field '%s' in merged object: %w", key, err)
+			}
+			
+			// Handle nullable fields
+			if val == nil || fieldTypeInfo.Kind == models.Struct || fieldTypeInfo.Kind == models.Slice || fieldTypeInfo.Kind == models.Interface {
+				fieldTypeInfo.IsPointer = true
+			}
+			
+			jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
+			
+			// Create field info
+			fieldInfo := models.FieldInfo{
+				JSONKey: key,
+				GoName:  goFieldName,
+				GoType:  fieldTypeInfo,
+				JSONTag: jsonTag,
+			}
+			
+			// Add to our map of all fields
+			allFields[key] = fieldInfo
+		}
+	}
+	
+	// Now process all the nested object fields we collected
+	for key, nestedObjects := range nestedObjectFields {
+		if len(nestedObjects) > 0 {
+			goFieldName := jsonKeyToPascalCase(key)
+			nestedStructSuggestedName := suggestedName + goFieldName
+			
+			// Create a merged struct for this nested field
+			mergedNestedStruct, err := a.createMergedStructDef(nestedObjects, nestedStructSuggestedName)
+			if err != nil {
+				return models.StructDef{}, fmt.Errorf("failed to create merged struct for nested field '%s': %w", key, err)
+			}
+			
+			// Add the merged struct to our results
+			typeInfo := a.findOrAddStructDef(mergedNestedStruct, nestedStructSuggestedName, false, false)
+			
+			// Make it a pointer since it's a nested object
+			typeInfo.IsPointer = true
+			
+			jsonTag := fmt.Sprintf("`json:\"%s,omitempty\"`", key)
+			
+			// Create field info for this nested object
+			fieldInfo := models.FieldInfo{
+				JSONKey: key,
+				GoName:  goFieldName,
+				GoType:  typeInfo,
+				JSONTag: jsonTag,
+			}
+			
+			// Add to our map of all fields
+			allFields[key] = fieldInfo
+		}
+	}
+	
+	// Convert the map of fields to a slice
+	fields := make([]models.FieldInfo, 0, len(allFields))
+	// Extract keys and sort them for deterministic field order
+	keys := make([]string, 0, len(allFields))
+	for k := range allFields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	
+	// Add fields in sorted order
+	for _, key := range keys {
+		fields = append(fields, allFields[key])
+	}
+	
+	// Create the merged struct definition
+	return models.StructDef{
+		Name:   suggestedName, // This is just a suggestion, will be finalized by findOrAddStructDef
+		Fields: fields,
+		IsRoot: false, // Array elements are never root structs
+	}, nil
 }
 
 // findOrAddStructDef checks if an equivalent struct definition already exists.
