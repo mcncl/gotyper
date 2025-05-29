@@ -191,7 +191,7 @@ func TestCLI_InvalidJSON(t *testing.T) {
 
 	err := cmd.Run()
 	assert.Error(t, err, "CLI should fail with invalid JSON")
-	assert.Contains(t, stderr.String(), "failed to parse JSON")
+	assert.Contains(t, stderr.String(), "JSON parsing error")
 }
 
 // TestCLI_EmptyInput tests the CLI with empty input

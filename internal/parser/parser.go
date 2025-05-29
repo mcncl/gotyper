@@ -2,12 +2,13 @@ package parser
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	stderrors "errors" // Standard errors package
+	"github.com/mcncl/gotyper/internal/errors" // Custom errors package
 	"github.com/mcncl/gotyper/internal/models"
 )
 
@@ -20,24 +21,29 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 
 	var rootValue models.JSONValue
 	if err := decoder.Decode(&rootValue); err != nil {
-		if errors.Is(err, io.EOF) { // io.EOF means empty input if nothing was decoded
+		if stderrors.Is(err, io.EOF) { // io.EOF means empty input if nothing was decoded
 			// To be more precise, check if anything was decoded.
 			// A common way is to check if the reader was advanced.
 			// However, for an empty stream, Decode returns io.EOF.
 			// For a stream with just whitespace, it might also return io.EOF
 			// or a syntax error depending on the content.
-			// Let's assume io.EOF from Decode on an empty or whitespace-only stream means "input is empty".
-			return models.IntermediateRepresentation{}, fmt.Errorf("input is empty or contains only whitespace")
+			return models.IntermediateRepresentation{}, errors.NewParsingError("input is empty or contains only whitespace", errors.ErrEmptyInput)
 		}
 		var syntaxError *json.SyntaxError
 		var unmarshalTypeError *json.UnmarshalTypeError
-		if errors.As(err, &syntaxError) {
-			return models.IntermediateRepresentation{}, fmt.Errorf("json syntax error at offset %d: %s", syntaxError.Offset, syntaxError.Error())
+		if stderrors.As(err, &syntaxError) {
+			return models.IntermediateRepresentation{}, errors.NewParsingError(
+				fmt.Sprintf("JSON syntax error at offset %d", syntaxError.Offset),
+				errors.ErrInvalidJSON,
+			)
 		}
-		if errors.As(err, &unmarshalTypeError) {
-			return models.IntermediateRepresentation{}, fmt.Errorf("json unmarshal type error at offset %d for type %s (value: '%s'): %s", unmarshalTypeError.Offset, unmarshalTypeError.Type, unmarshalTypeError.Value, unmarshalTypeError.Error())
+		if stderrors.As(err, &unmarshalTypeError) {
+			return models.IntermediateRepresentation{}, errors.NewParsingError(
+				fmt.Sprintf("JSON type error at offset %d for type %s", unmarshalTypeError.Offset, unmarshalTypeError.Type),
+				errors.ErrInvalidJSON,
+			)
 		}
-		return models.IntermediateRepresentation{}, fmt.Errorf("failed to decode json: %w", err)
+		return models.IntermediateRepresentation{}, errors.NewParsingError("failed to decode JSON", err)
 	}
 
 	// Check for trailing data after the first JSON value.
@@ -47,15 +53,15 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 		// Attempt to decode again to see if it's just whitespace or actual data
 		var trailingValue interface{}
 		if err := decoder.Decode(&trailingValue); err != nil {
-			if !errors.Is(err, io.EOF) { // If it's not EOF, it's an error with the trailing data
+			if !stderrors.Is(err, io.EOF) { // If it's not EOF, it's an error with the trailing data
 				// This could be a syntax error in the trailing part.
-				return models.IntermediateRepresentation{}, fmt.Errorf("invalid trailing data after first JSON value: %w", err)
+				return models.IntermediateRepresentation{}, errors.NewParsingError("invalid trailing data after first JSON value", err)
 			}
 			// If it is io.EOF here, it means only whitespace followed the first JSON value, which is often allowed.
 			// However, strict JSON parsers might disallow this. For now, we'll consider it okay if what follows is just whitespace leading to EOF.
 		} else {
 			// If another value was successfully decoded, then there are multiple JSON values.
-			return models.IntermediateRepresentation{}, fmt.Errorf("multiple JSON values found at the root, only one is allowed")
+			return models.IntermediateRepresentation{}, errors.NewParsingError("multiple JSON values found at the root", errors.ErrMultipleJSON)
 		}
 	}
 
@@ -108,11 +114,9 @@ func normalizeJSONValue(val models.JSONValue) models.JSONValue {
 func ParseString(jsonString string) (models.IntermediateRepresentation, error) {
 	// TrimSpace is important here because an empty string reader will give io.EOF to Decode,
 	// but a string with only spaces might not, depending on the decoder's behavior.
-	// Our Parse function now handles "empty or contains only whitespace" for readers.
 	if strings.TrimSpace(jsonString) == "" {
 		// Provide a specific error for truly empty or whitespace-only strings
-		// to differentiate from reader-based parsing where content isn't known upfront.
-		return models.IntermediateRepresentation{}, fmt.Errorf("input string is empty or consists only of whitespace")
+		return models.IntermediateRepresentation{}, errors.NewInputError("input string is empty", errors.ErrEmptyInput)
 	}
 	reader := strings.NewReader(jsonString)
 	return Parse(reader)
@@ -122,23 +126,37 @@ func ParseString(jsonString string) (models.IntermediateRepresentation, error) {
 // It returns an error if the file cannot be opened or read, or if it contains invalid JSON.
 func ParseFile(filePath string) (models.IntermediateRepresentation, error) {
 	if strings.TrimSpace(filePath) == "" {
-		return models.IntermediateRepresentation{}, fmt.Errorf("file path is empty")
+		return models.IntermediateRepresentation{}, errors.NewInputError("file path is empty", errors.ErrInvalidFilePath)
 	}
 	file, err := os.Open(filePath)
 	if err != nil {
-		return models.IntermediateRepresentation{}, fmt.Errorf("failed to open file '%s': %w", filePath, err)
+		// Check if the file doesn't exist
+		if os.IsNotExist(err) {
+			return models.IntermediateRepresentation{}, errors.NewInputError(
+				fmt.Sprintf("file '%s' not found", filePath),
+				errors.ErrFileNotFound,
+			)
+		}
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("failed to open file '%s'", filePath),
+			err,
+		)
 	}
 	defer file.Close()
 
-	// The Parse function will now handle empty file content by returning an "input is empty" error.
-	// A preliminary check for file size 0 can still be useful for a more specific error message
-	// before even attempting to parse.
+	// Check for empty file before parsing
 	stat, err := file.Stat()
 	if err != nil {
-		return models.IntermediateRepresentation{}, fmt.Errorf("failed to get file stats for '%s': %w", filePath, err)
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("failed to get file stats for '%s'", filePath),
+			err,
+		)
 	}
 	if stat.Size() == 0 {
-		return models.IntermediateRepresentation{}, fmt.Errorf("input file '%s' is empty", filePath)
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("input file '%s' is empty", filePath),
+			errors.ErrFileEmpty,
+		)
 	}
 
 	return Parse(file)

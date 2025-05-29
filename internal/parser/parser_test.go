@@ -149,15 +149,15 @@ func TestParseString_EmptyInput(t *testing.T) {
 	_, err := ParseString("")
 	if err == nil {
 		t.Errorf("ParseString() with empty string, err = nil, want error")
-	} else if !strings.Contains(err.Error(), "input string is empty or consists only of whitespace") {
-		t.Errorf("ParseString() with empty string, err = %v, want error containing 'input string is empty or consists only of whitespace'", err)
+	} else if !strings.Contains(err.Error(), "input string is empty") {
+		t.Errorf("ParseString() with empty string, err = %v, want error containing 'input string is empty'", err)
 	}
 
 	_, err = ParseString("   ") // Whitespace only
 	if err == nil {
 		t.Errorf("ParseString() with whitespace string, err = nil, want error")
-	} else if !strings.Contains(err.Error(), "input string is empty or consists only of whitespace") {
-		t.Errorf("ParseString() with whitespace string, err = %v, want error containing 'input string is empty or consists only of whitespace'", err)
+	} else if !strings.Contains(err.Error(), "input string is empty") {
+		t.Errorf("ParseString() with whitespace string, err = %v, want error containing 'input string is empty'", err)
 	}
 }
 
@@ -229,9 +229,9 @@ func TestParseFile_NonExistentFile(t *testing.T) {
 	_, err := ParseFile("nonexistentfile.json")
 	if err == nil {
 		t.Errorf("ParseFile() with non-existent file, err = nil, want error")
-	} else if !strings.Contains(err.Error(), "failed to open file") && !strings.Contains(err.Error(), "no such file or directory") {
-		// Error message might vary slightly by OS ("failed to open file" is from our wrapper, "no such file..." from os.Open)
-		t.Errorf("ParseFile() with non-existent file, err = %v, want error containing 'failed to open file' or 'no such file or directory'", err)
+	} else if !strings.Contains(err.Error(), "file not found") {
+		// With our new error handling, we expect a specific error message
+		t.Errorf("ParseFile() with non-existent file, err = %v, want error containing 'file not found'", err)
 	}
 }
 
