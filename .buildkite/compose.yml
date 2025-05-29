@@ -1,0 +1,26 @@
+version: "3.5"
+
+services:
+  golangci-lint:
+    image: golangci/golangci-lint:v2.0.2
+    working_dir: /app
+    volumes:
+      - ..:/app
+      - ~/.cache/golangci-lint/v1.54.1:/root/.cache
+  
+  goreleaser:
+    image: goreleaser/goreleaser:v2.0.0
+    environment:
+      - BUILDKITE_AGENT_JOB_API_SOCKET
+      - BUILDKITE_AGENT_JOB_API_TOKEN
+      - GITHUB_TOKEN
+    working_dir: /app
+    volumes:
+      - ..:/app
+      - ${BUILDKITE_AGENT_JOB_API_SOCKET}:${BUILDKITE_AGENT_JOB_API_SOCKET}
+  
+  golang:
+    image: golang:1.24
+    working_dir: /app
+    volumes:
+      - ..:/app

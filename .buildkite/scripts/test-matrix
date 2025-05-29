@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+# This script creates dynamic steps for testing across multiple Go versions
+# using the Buildkite docker-compose plugin
+
+cat << EOF
+steps:
+EOF
+
+GO_VERSIONS=("1.22" "1.23" "1.24")
+
+for version in "${GO_VERSIONS[@]}"; do
+  cat << EOF
+  - label: ":go: Test with Go ${version}"
+    plugins:
+      - docker-compose#v5.2.0:
+          config: .buildkite/docker-compose.yml
+          run: golang
+          command: ["bash", "-c", "go build -v ./... && go test -v ./..."]
+          environment:
+            - GO_VERSION=${version}
+          image-name: golang:${version}
+          image-repository: golang
+    agents:
+      queue: "default"
+EOF
+done
