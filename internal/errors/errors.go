@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Standard errors that can be used throughout the application
+// Standard application errors
 var (
 	ErrEmptyInput      = errors.New("input is empty or contains only whitespace")
 	ErrInvalidJSON     = errors.New("invalid JSON format")
@@ -16,7 +16,7 @@ var (
 	ErrInvalidFilePath = errors.New("invalid file path")
 )
 
-// ErrorType represents the category of an error
+// ErrorType categorizes errors
 type ErrorType string
 
 const (
@@ -29,14 +29,14 @@ const (
 	ErrorTypeUnknown  ErrorType = "unknown"
 )
 
-// AppError represents an application-specific error with context
+// AppError is an application-specific error with context
 type AppError struct {
 	Type    ErrorType
 	Message string
 	Err     error
 }
 
-// Error implements the error interface
+// Error implements error interface
 func (e *AppError) Error() string {
 	if e.Err != nil {
 		return fmt.Sprintf("%s: %s: %v", e.Type, e.Message, e.Err)
@@ -44,12 +44,12 @@ func (e *AppError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Type, e.Message)
 }
 
-// Unwrap returns the wrapped error
+// Unwrap returns wrapped error
 func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-// Is implements errors.Is interface for error comparison
+// Is implements errors.Is for comparison
 func (e *AppError) Is(target error) bool {
 	// Check if target is also an *AppError and if the types match
 	t, ok := target.(*AppError)

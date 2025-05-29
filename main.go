@@ -8,13 +8,14 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/mcncl/gotyper/internal/analyzer"
+	"github.com/mcncl/gotyper/internal/errors"
 	"github.com/mcncl/gotyper/internal/formatter"
 	"github.com/mcncl/gotyper/internal/generator"
 	"github.com/mcncl/gotyper/internal/models"
 	"github.com/mcncl/gotyper/internal/parser"
 )
 
-// CLI defines the command-line interface structure
+// CLI defines the command-line interface
 var CLI struct {
 	Input     string `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
 	Output    string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
@@ -25,7 +26,7 @@ var CLI struct {
 	Version   bool   `help:"Show version information." short:"v"`
 }
 
-// Context holds the runtime context for the CLI
+// Context holds the runtime context
 type Context struct {
 	Debug bool
 }
@@ -36,11 +37,19 @@ const (
 )
 
 func main() {
-	kong.Parse(&CLI,
+	// Parse CLI arguments with Kong
+	parser := kong.Must(&CLI,
 		kong.Name("gotyper"),
 		kong.Description("A tool to convert JSON to Go structs"),
 		kong.UsageOnError(),
 	)
+
+	// Parse the command line arguments
+	ctx, err := parser.Parse(os.Args[1:])
+	if err != nil {
+		// If there's an error parsing arguments, the usage will already be shown by kong.UsageOnError()
+		os.Exit(1)
+	}
 
 	// Show version and exit if requested
 	if CLI.Version {
@@ -48,10 +57,24 @@ func main() {
 		return
 	}
 
-	err := run(&Context{Debug: CLI.Debug})
+	err = run(&Context{Debug: CLI.Debug})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		// Use our custom error handling to provide user-friendly error messages
+		fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
+		
+		// Show help on error
+		fmt.Fprintf(os.Stderr, "\nFor help, run: gotyper --help\n")
+		
 		os.Exit(1)
+	}
+
+	// If we have a command with a Run function, call it
+	if ctx.Command() != "" {
+		err = ctx.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
+			os.Exit(1)
+		}
 	}
 }
 
@@ -60,21 +83,22 @@ func run(ctx *Context) error {
 	// 1. Parse JSON input
 	ir, err := parseInput()
 	if err != nil {
-		return fmt.Errorf("failed to parse JSON: %w", err)
+		// Error is already wrapped by parseInput
+		return err
 	}
 
 	// 2. Analyze JSON structure
 	analyzerInst := analyzer.NewAnalyzer()
 	analysisResult, err := analyzerInst.Analyze(ir, CLI.RootName)
 	if err != nil {
-		return fmt.Errorf("failed to analyze JSON structure: %w", err)
+		return errors.NewAnalysisError("failed to analyze JSON structure", err)
 	}
 
 	// 3. Generate Go structs
 	generatorInst := generator.NewGenerator()
 	code, err := generatorInst.GenerateStructs(analysisResult, CLI.Package)
 	if err != nil {
-		return fmt.Errorf("failed to generate Go structs: %w", err)
+		return errors.NewGenerateError("failed to generate Go structs", err)
 	}
 
 	// 4. Format the code if requested
@@ -82,7 +106,7 @@ func run(ctx *Context) error {
 		formatterInst := formatter.NewFormatter()
 		code, err = formatterInst.Format(code)
 		if err != nil {
-			return fmt.Errorf("failed to format Go code: %w", err)
+			return errors.NewFormatError("failed to format Go code", err)
 		}
 	}
 
@@ -90,7 +114,7 @@ func run(ctx *Context) error {
 	return writeOutput(code)
 }
 
-// parseInput reads and parses JSON from either a file or stdin
+// parseInput reads JSON from file or stdin
 func parseInput() (models.IntermediateRepresentation, error) {
 	if CLI.Input != "" {
 		// Parse from file
@@ -100,34 +124,34 @@ func parseInput() (models.IntermediateRepresentation, error) {
 	// Check if stdin has data
 	stdinInfo, err := os.Stdin.Stat()
 	if err != nil {
-		return models.IntermediateRepresentation{}, fmt.Errorf("failed to stat stdin: %w", err)
+		return models.IntermediateRepresentation{}, errors.NewInputError("failed to access stdin", err)
 	}
 
 	if (stdinInfo.Mode() & os.ModeCharDevice) != 0 {
 		// No data provided on stdin
-		return models.IntermediateRepresentation{}, fmt.Errorf("no input provided: please specify a file with -i or pipe JSON data to stdin")
+		return models.IntermediateRepresentation{}, errors.NewInputError("no input provided", errors.ErrNoInput)
 	}
 
 	// Read from stdin
 	jsonData, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		return models.IntermediateRepresentation{}, fmt.Errorf("failed to read from stdin: %w", err)
+		return models.IntermediateRepresentation{}, errors.NewInputError("failed to read from stdin", err)
 	}
 
 	if len(jsonData) == 0 {
-		return models.IntermediateRepresentation{}, fmt.Errorf("empty input received from stdin")
+		return models.IntermediateRepresentation{}, errors.NewInputError("empty input received from stdin", errors.ErrEmptyInput)
 	}
 
 	return parser.ParseString(string(jsonData))
 }
 
-// writeOutput writes the generated code to either a file or stdout
+// writeOutput writes code to file or stdout
 func writeOutput(code string) error {
 	if CLI.Output != "" {
 		// Write to file
 		err := os.WriteFile(CLI.Output, []byte(code), 0644)
 		if err != nil {
-			return fmt.Errorf("failed to write to file '%s': %w", CLI.Output, err)
+			return errors.NewOutputError(fmt.Sprintf("failed to write to file '%s'", CLI.Output), err)
 		}
 		fmt.Fprintf(os.Stderr, "Generated Go code written to %s\n", CLI.Output)
 		return nil
@@ -135,5 +159,8 @@ func writeOutput(code string) error {
 
 	// Write to stdout
 	_, err := fmt.Println(strings.TrimSpace(code))
-	return err
+	if err != nil {
+		return errors.NewOutputError("failed to write to stdout", err)
+	}
+	return nil
 }

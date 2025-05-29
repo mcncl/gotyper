@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-// Formatter is responsible for formatting Go code according to standard conventions
+// Formatter formats Go code according to standard conventions
 type Formatter struct{}
 
-// NewFormatter creates a new Formatter instance
+// NewFormatter creates a new Formatter
 func NewFormatter() *Formatter {
 	return &Formatter{}
 }
 
-// Format takes Go code as a string and returns properly formatted Go code
+// Format returns properly formatted Go code
 func (f *Formatter) Format(code string) (string, error) {
 	// Handle empty input
 	if strings.TrimSpace(code) == "" {
@@ -40,8 +40,7 @@ func (f *Formatter) Format(code string) (string, error) {
 	return result, nil
 }
 
-// formatImports organizes import statements with standard library imports first,
-// followed by third-party imports with a blank line in between
+// formatImports organizes import statements with standard library imports first
 func (f *Formatter) formatImports(code string) string {
 	// Use regex to find import blocks
 	importRegex := regexp.MustCompile(`(?s)import\s*\((.+?)\)`)
@@ -103,7 +102,7 @@ func (f *Formatter) formatImports(code string) string {
 	return importRegex.ReplaceAllString(code, newImportBlock)
 }
 
-// formatStructFields formats struct fields with proper alignment
+// formatStructFields aligns struct fields
 func (f *Formatter) formatStructFields(code string) string {
 	// Use regex to find struct definitions
 	structRegex := regexp.MustCompile(`(?s)(type\s+\w+\s+struct\s*\{)([^\}]+)(\})`)
@@ -144,7 +143,7 @@ func (f *Formatter) formatStructFields(code string) string {
 	return result
 }
 
-// formatStructBody formats the body of a struct with aligned fields
+// formatStructBody aligns struct fields
 func (f *Formatter) formatStructBody(body string) string {
 	// Use a simple approach that doesn't try to be too clever with alignment
 	// This ensures consistent output that matches the test expectations

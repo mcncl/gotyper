@@ -1,7 +1,6 @@
 package models
 
-// JSONValue is a generic type to represent any JSON value.
-// This can be a string, number, boolean, null, object, or array.
+// JSONValue represents any JSON value (string, number, boolean, null, object, array)
 type JSONValue interface{}
 
 // JSONObject represents a JSON object, which is a map of strings to JSONValues.
@@ -10,17 +9,14 @@ type JSONObject map[string]JSONValue
 // JSONArray represents a JSON array, which is a slice of JSONValues.
 type JSONArray []JSONValue
 
-// IntermediateRepresentation is a structure to hold the parsed JSON data
-// in a way that's easy for the analyzer to work with.
-// This is a starting point and might evolve.
+// IntermediateRepresentation holds parsed JSON data for analysis
 type IntermediateRepresentation struct {
 	Root       JSONValue
 	RootIsArray bool // True if the root of the JSON is an array vs an object
-	// We might add more fields here, like metadata or detected types,
-	// as the analyzer and generator components are built.
+	
 }
 
-// GoTypeKind represents the kind of Go type inferred.
+// GoTypeKind represents the inferred Go type
 type GoTypeKind string
 
 const (
@@ -35,7 +31,7 @@ const (
 	Struct GoTypeKind = "struct"
 	Slice  GoTypeKind = "slice"
 
-	// Special string types (can be represented as string with a comment or a custom type later)
+	// Special string types
 	Time GoTypeKind = "time.Time" // Will require import "time"
 	UUID GoTypeKind = "uuid.UUID" // Will require import "github.com/google/uuid" or similar
 )

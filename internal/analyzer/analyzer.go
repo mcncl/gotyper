@@ -14,21 +14,19 @@ import (
 // DefaultRootName is the default name for the root struct if not specified.
 const DefaultRootName = "RootType"
 
-// regex patterns for special string types
+// Regex patterns for special types
 var (
 	uuidRegex    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	rfc3339Regex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)
 	// Add more timestamp regexes if needed, e.g., for Unix timestamps or other common formats
 )
 
-// Analyzer is responsible for analyzing the intermediate JSON representation
-// and determining the Go types and struct definitions.
+// Analyzer analyzes JSON and determines Go types and struct definitions
 
 type Analyzer struct {
-	// structNames is used to keep track of generated struct names to avoid collisions
-	// and to handle potentially recursive structures (though full recursion is complex).
+		// structNames tracks generated struct names to avoid collisions
 	structNames map[string]int
-	// analysisResult holds the structs and imports discovered during analysis.
+		// analysisResult holds discovered structs and imports
 	analysisResult models.AnalysisResult
 }
 
@@ -43,8 +41,7 @@ func NewAnalyzer() *Analyzer {
 	}
 }
 
-// Analyze processes the IntermediateRepresentation and returns an AnalysisResult
-// containing all the struct definitions and necessary imports.
+// Analyze processes JSON representation and returns struct definitions and imports
 func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName string) (models.AnalysisResult, error) {
 	if rootStructName == "" {
 		rootStructName = DefaultRootName

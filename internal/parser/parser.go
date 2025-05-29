@@ -12,9 +12,7 @@ import (
 	"github.com/mcncl/gotyper/internal/models"
 )
 
-// Parse takes an io.Reader containing JSON data and attempts to parse it
-// into an IntermediateRepresentation.
-// It handles basic validation like empty input and JSON syntax errors.
+// Parse converts JSON data from an io.Reader into an IntermediateRepresentation
 func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 	decoder := json.NewDecoder(reader)
 	decoder.UseNumber() // Ensure numbers are read as json.Number
@@ -88,8 +86,7 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 	return ir, nil
 }
 
-// normalizeJSONValue recursively converts raw map[string]interface{} and []interface{}
-// into models.JSONObject and models.JSONArray respectively.
+// normalizeJSONValue converts raw JSON types into our model types
 func normalizeJSONValue(val models.JSONValue) models.JSONValue {
     switch v := val.(type) {
     case map[string]interface{}:
@@ -109,8 +106,7 @@ func normalizeJSONValue(val models.JSONValue) models.JSONValue {
     }
 }
 
-// ParseString is a helper function to parse JSON from a string.
-// It returns an error if the string is empty or contains invalid JSON.
+// ParseString parses JSON from a string
 func ParseString(jsonString string) (models.IntermediateRepresentation, error) {
 	// TrimSpace is important here because an empty string reader will give io.EOF to Decode,
 	// but a string with only spaces might not, depending on the decoder's behavior.
@@ -122,8 +118,7 @@ func ParseString(jsonString string) (models.IntermediateRepresentation, error) {
 	return Parse(reader)
 }
 
-// ParseFile is a helper function to parse JSON from a file specified by its path.
-// It returns an error if the file cannot be opened or read, or if it contains invalid JSON.
+// ParseFile parses JSON from a file path
 func ParseFile(filePath string) (models.IntermediateRepresentation, error) {
 	if strings.TrimSpace(filePath) == "" {
 		return models.IntermediateRepresentation{}, errors.NewInputError("file path is empty", errors.ErrInvalidFilePath)

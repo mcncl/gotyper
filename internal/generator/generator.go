@@ -9,15 +9,15 @@ import (
 	"github.com/mcncl/gotyper/internal/models"
 )
 
-// Generator is responsible for generating Go struct definitions from analysis results
+// Generator creates Go struct definitions from analysis results
 type Generator struct {}
 
-// NewGenerator creates a new Generator instance
+// NewGenerator creates a new Generator
 func NewGenerator() *Generator {
 	return &Generator{}
 }
 
-// GenerateStructs generates Go struct definitions from the analysis result
+// GenerateStructs creates Go code from analysis results
 func (g *Generator) GenerateStructs(result models.AnalysisResult, packageName string) (string, error) {
 	var buf bytes.Buffer
 
@@ -136,7 +136,7 @@ func (g *Generator) GenerateStructs(result models.AnalysisResult, packageName st
 	return buf.String(), nil
 }
 
-// sortStructs sorts structs to ensure root structs come first, followed by nested structs
+// sortStructs puts root structs first, then nested structs
 func sortStructs(structs []models.StructDef) []models.StructDef {
 	sorted := make([]models.StructDef, len(structs))
 	copy(sorted, structs)
@@ -153,7 +153,7 @@ func sortStructs(structs []models.StructDef) []models.StructDef {
 	return sorted
 }
 
-// getTypeString converts a TypeInfo to a string representation of the Go type
+// getTypeString converts TypeInfo to Go type string
 func getTypeString(typeInfo models.TypeInfo) string {
 	var typeStr string
 
