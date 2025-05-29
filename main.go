@@ -49,15 +49,19 @@ func main() {
 	// Check if no arguments provided and set interactive mode by default
 	if len(os.Args) == 1 {
 		CLI.Interactive = true
+		// Explicitly ensure default package name is set to 'main'
+		if CLI.Package == "" {
+			CLI.Package = "main"
+		}
 		// When no args provided, run directly without parsing arguments
 		err := run(&Context{Debug: CLI.Debug})
 		if err != nil {
 			// Use our custom error handling to provide user-friendly error messages
 			fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
-			
+
 			// Show help on error
 			fmt.Fprintf(os.Stderr, "\nFor help, run: gotyper --help\n")
-			
+
 			os.Exit(1)
 		}
 		return
@@ -80,10 +84,10 @@ func main() {
 	if err != nil {
 		// Use our custom error handling to provide user-friendly error messages
 		fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
-		
+
 		// Show help on error
 		fmt.Fprintf(os.Stderr, "\nFor help, run: gotyper --help\n")
-		
+
 		os.Exit(1)
 	}
 
