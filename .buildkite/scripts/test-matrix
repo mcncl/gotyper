@@ -22,7 +22,5 @@ for version in "${GO_VERSIONS[@]}"; do
             - GO_VERSION=${version}
           image-name: golang:${version}
           image-repository: golang
-    agents:
-      queue: "default"
 EOF
 done
