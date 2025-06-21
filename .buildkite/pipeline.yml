@@ -46,6 +46,8 @@ steps:
           github_token: $$GITHUB_AUTH_TOKEN
           checks:
             - Binary-Artifacts
+          store_results: true
+          fail_build_threshold: 7
 
   - block: ":rocket: Release"
     key: "release"
