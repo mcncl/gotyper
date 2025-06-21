@@ -42,7 +42,7 @@ steps:
       - secrets#v1.0.0:
           variables:
             GITHUB_TOKEN: SCORECARD_TOKEN
-    command: echo $GITHUB_TOKEN
+    command: echo $$GITHUB_TOKEN
       # - https://github.com/mcncl/ossf-scorecard-buildkite-plugin.git#main:
       #     github_token: $GITHUB_TOKEN
 
