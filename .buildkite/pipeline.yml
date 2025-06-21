@@ -41,9 +41,9 @@ steps:
     plugins:
       - secrets#v1.0.0:
           variables:
-            GITHUB_AUTH_TOKEN: GITHUB_TOKEN
+            GITHUB_TOKEN: SCORECARD_TOKEN
       - https://github.com/mcncl/ossf-scorecard-buildkite-plugin.git#main:
-          github_token: GITHUB_AUTH_TOKEN
+          github_token: $GITHUB_TOKEN
 
   - block: ":rocket: Release"
     key: "release"
