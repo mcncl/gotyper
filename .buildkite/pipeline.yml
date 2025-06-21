@@ -44,6 +44,8 @@ steps:
             GITHUB_AUTH_TOKEN: SCORECARD_TOKEN
       - https://github.com/mcncl/ossf-scorecard-buildkite-plugin.git#main:
           github_token: $$GITHUB_AUTH_TOKEN
+          checks:
+            - Binary-Artifacts
 
   - block: ":rocket: Release"
     key: "release"
