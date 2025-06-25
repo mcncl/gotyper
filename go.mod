@@ -3,7 +3,7 @@ module github.com/mcncl/gotyper
 go 1.24.3
 
 require (
-	github.com/alecthomas/kong v1.11.0
+	github.com/alecthomas/kong v1.12.0
 	github.com/iancoleman/strcase v0.3.0
 	github.com/stretchr/testify v1.10.0
 )
