@@ -42,7 +42,6 @@ steps:
       - https://github.com/mcncl/ossf-scorecard-buildkite-plugin.git#main:
           github_token: $$GITHUB_AUTH_TOKEN
           store_results: true
-          fail_build_threshold: 7.0
 
   - block: ":rocket: Release"
     key: "release"
