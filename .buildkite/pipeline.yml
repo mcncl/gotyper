@@ -37,6 +37,17 @@ steps:
       - label: ":matrix: Test Matrix"
         command: ".buildkite/scripts/test-matrix | buildkite-agent pipeline upload"
 
+  - label: "🕵️ Perform OSSF scan"
+    plugins:
+      - secrets#v1.0.0:
+          variables:
+            GITHUB_AUTH_TOKEN: "SCORECARD_TOKEN"
+      - https://github.com/mcncl/ossf-scorecard-buildkite-plugin.git#main:
+          github_token: "$GITHUB_AUTH_TOKEN"
+          store_results: true
+          fail_build_threshold: 7
+          
+
   - block: ":rocket: Release"
     key: "release"
     depends_on: "setup"
