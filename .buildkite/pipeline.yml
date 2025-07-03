@@ -34,19 +34,18 @@ steps:
       - label: ":matrix: Test Matrix"
         command: ".buildkite/scripts/test-matrix | buildkite-agent pipeline upload"
 
-  - label: "🕵️ Perform OSSF scan"
+  - label: "AI Assist"
+    command: echo "Running Claude Code analysis"
     plugins:
-      - secrets#v1.0.0:
-          variables:
-            GITHUB_AUTH_TOKEN: "SCORECARD_TOKEN"
-      - https://github.com/mcncl/ossf-scorecard-buildkite-plugin.git#main:
-          github_token: $$GITHUB_AUTH_TOKEN
-          store_results: true
-          fail_build_threshold: 7
-          
+      - https://github.com/mcncl/claude-code-buildkite-plugin#main:
+          secret_name: "ANTHROPIC_API_KEY"
+          buildkite_api_token: "$(buildkite-agent secret get BUILD_TOKEN)"
+          trigger: "always"
+          analysis_level: "build"
 
   - block: ":rocket: Release"
     key: "release"
+    branches: "main"
     depends_on: "setup"
     prompt: "Choose a tag for this release"
     fields:
@@ -58,6 +57,7 @@ steps:
   - label: ":git: Create Tag"
     command: ".buildkite/scripts/tag"
     key: "create-tag"
+    branches: "main"
     depends_on: "release"
 
   - label: ":goreleaser: Release"
