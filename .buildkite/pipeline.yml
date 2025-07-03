@@ -15,9 +15,9 @@ steps:
               config: .buildkite/compose.yml
               run: golang
               command: ["go", "test", "-v", "./..."]
-        - https://github.com/mcncl/claude-code-buildkite-plugin#main:
-            secret_name: "ANTHROPIC_API_KEY"
-            trigger: "always"
+          - https://github.com/mcncl/claude-code-buildkite-plugin#main:
+              secret_name: "ANTHROPIC_API_KEY"
+              trigger: "always"
 
       - label: ":mag: Vet"
         plugins:
