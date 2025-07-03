@@ -15,6 +15,9 @@ steps:
               config: .buildkite/compose.yml
               run: golang
               command: ["go", "test", "-v", "./..."]
+        - https://github.com/mcncl/claude-code-buildkite-plugin#main:
+            secret_name: "ANTHROPIC_API_KEY"
+            trigger: "always"
 
       - label: ":mag: Vet"
         plugins:
@@ -33,15 +36,6 @@ steps:
 
       - label: ":matrix: Test Matrix"
         command: ".buildkite/scripts/test-matrix | buildkite-agent pipeline upload"
-
-  - label: "AI Assist"
-    command: echo "Running Claude Code analysis"
-    plugins:
-      - https://github.com/mcncl/claude-code-buildkite-plugin#main:
-          secret_name: "ANTHROPIC_API_KEY"
-          buildkite_api_token: "$(buildkite-agent secret get BUILD_TOKEN)"
-          trigger: "always"
-          analysis_level: "build"
 
   - block: ":rocket: Release"
     key: "release"
