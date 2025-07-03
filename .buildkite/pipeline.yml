@@ -61,6 +61,7 @@ steps:
     depends_on: "release"
 
   - label: ":goreleaser: Release"
+    branches: "main"
     plugins:
       - docker-compose#v5.10.0:
           config: .buildkite/compose.yml
