@@ -11,12 +11,16 @@ steps:
 
       - label: ":test_tube: Test"
         plugins:
+          - secrets#v1.0.0:
+              variables:
+                BUILDKITE_TOKEN: BUILD_TOKEN
           - docker-compose#v5.10.0:
               config: .buildkite/compose.yml
               run: golang
               command: ["go", "test", "-v", "./..."]
           - https://github.com/mcncl/claude-code-buildkite-plugin#main:
               secret_name: "ANTHROPIC_API_KEY"
+              buildkite_api_token: $$BUILDKITE_TOKEN
               trigger: "always"
 
       - label: ":mag: Vet"
