@@ -20,7 +20,7 @@ steps:
               command: ["go", "test", "-v", "./..."]
           - https://github.com/mcncl/claude-code-buildkite-plugin#main:
               secret_name: "ANTHROPIC_API_KEY"
-              buildkite_api_token: $$BUILDKITE_TOKEN
+              buildkite_api_token: "$BUILDKITE_TOKEN"
               trigger: "always"
 
       - label: ":mag: Vet"
