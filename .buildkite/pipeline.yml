@@ -1,6 +1,3 @@
-agents:
-  queue: "default"
-
 steps:
   - group: "Set up :go:"
     key: "setup"
