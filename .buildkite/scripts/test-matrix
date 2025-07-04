@@ -12,15 +12,17 @@ GO_VERSIONS=("1.22" "1.23" "1.24")
 
 for version in "${GO_VERSIONS[@]}"; do
   cat << EOF
-  - label: ":go: Test with Go ${version}"
-    plugins:
-      - docker-compose#v5.2.0:
-          config: .buildkite/compose.yml
-          run: golang
-          command: ["bash", "-c", "go build -v ./... && go test -v ./..."]
-          environment:
-            - GO_VERSION=${version}
-          image-name: golang:${version}
-          image-repository: golang
+  - group: "Version tests"
+    steps:
+      - label: ":go: Test with Go ${version}"
+        plugins:
+          - docker-compose#v5.10.0:
+              config: .buildkite/compose.yml
+              run: golang
+              command: ["bash", "-c", "go build -v ./... && go test -v ./..."]
+              environment:
+                - GO_VERSION=${version}
+              image-name: golang:${version}
+              image-repository: golang
 EOF
 done
