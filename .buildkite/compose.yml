@@ -20,7 +20,7 @@ services:
       - ${BUILDKITE_AGENT_JOB_API_SOCKET}:${BUILDKITE_AGENT_JOB_API_SOCKET}
   
   golang:
-    image: golang:1.24
+    image: golang:1.25
     working_dir: /app
     volumes:
       - ..:/app
