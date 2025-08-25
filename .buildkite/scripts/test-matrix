@@ -5,15 +5,14 @@ set -euo pipefail
 # using the Buildkite docker-compose plugin
 
 cat << EOF
-steps:
+  - group: "Version tests"
+    steps:
 EOF
 
-GO_VERSIONS=("1.22" "1.23" "1.24", "1.25")
+GO_VERSIONS=("1.22" "1.23" "1.24" "1.25")
 
 for version in "${GO_VERSIONS[@]}"; do
   cat << EOF
-  - group: "Version tests"
-    steps:
       - label: ":go: Test with Go ${version}"
         plugins:
           - docker-compose#v5.10.0:
