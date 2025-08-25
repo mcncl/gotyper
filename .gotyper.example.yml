@@ -4,6 +4,9 @@ root_name: "ApiResponse"
 
 # Type mappings for common patterns
 types:
+  # Control Unix timestamp detection
+  unix_timestamps_as_time: false  # Set to true to convert Unix timestamps to time.Time instead of int64
+  
   mappings:
     # All ID fields become int64
     - pattern: ".*_id$|^id$"

@@ -277,6 +277,291 @@ func TestAnalyze_EnhancedTimeFormats(t *testing.T) {
 	}
 }
 
+// TestAnalyze_EnhancedTimeFormatsExtended tests additional time format detection
+func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
+	tests := []struct {
+		name        string
+		jsonInput   string
+		expectTime  bool
+		description string
+	}{
+		// US Date Formats
+		{
+			name:        "US date MM/DD/YYYY",
+			jsonInput:   `{"date": "01/15/2023"}`,
+			expectTime:  true,
+			description: "US format with leading zeros",
+		},
+		{
+			name:        "US date M/D/YYYY",
+			jsonInput:   `{"date": "1/15/2023"}`,
+			expectTime:  true,
+			description: "US format without leading zeros",
+		},
+		{
+			name:        "US date MM-DD-YYYY",
+			jsonInput:   `{"date": "01-15-2023"}`,
+			expectTime:  true,
+			description: "US format with hyphens",
+		},
+		{
+			name:        "US date M-D-YYYY",
+			jsonInput:   `{"date": "1-15-2023"}`,
+			expectTime:  true,
+			description: "US format with hyphens, no leading zeros",
+		},
+
+		// European Date Formats
+		{
+			name:        "European date DD/MM/YYYY",
+			jsonInput:   `{"date": "15/01/2023"}`,
+			expectTime:  true,
+			description: "European format with leading zeros",
+		},
+		{
+			name:        "European date D/M/YYYY",
+			jsonInput:   `{"date": "15/1/2023"}`,
+			expectTime:  true,
+			description: "European format without leading zeros",
+		},
+		{
+			name:        "European date DD-MM-YYYY",
+			jsonInput:   `{"date": "15-01-2023"}`,
+			expectTime:  true,
+			description: "European format with hyphens",
+		},
+		{
+			name:        "European date D.M.YYYY",
+			jsonInput:   `{"date": "15.01.2023"}`,
+			expectTime:  true,
+			description: "European format with dots",
+		},
+
+		// Additional ISO8601 Variants
+		{
+			name:        "ISO8601 basic format",
+			jsonInput:   `{"timestamp": "20230115T103000Z"}`,
+			expectTime:  true,
+			description: "ISO8601 basic format without separators",
+		},
+		{
+			name:        "ISO8601 week date",
+			jsonInput:   `{"timestamp": "2023-W03-1T10:30:00Z"}`,
+			expectTime:  true,
+			description: "ISO8601 week date format",
+		},
+		{
+			name:        "ISO8601 ordinal date",
+			jsonInput:   `{"timestamp": "2023-015T10:30:00Z"}`,
+			expectTime:  true,
+			description: "ISO8601 ordinal date format",
+		},
+
+		// Time-only formats
+		{
+			name:        "Time only HH:MM:SS",
+			jsonInput:   `{"time": "14:30:15"}`,
+			expectTime:  true,
+			description: "24-hour time format",
+		},
+		{
+			name:        "Time only HH:MM",
+			jsonInput:   `{"time": "14:30"}`,
+			expectTime:  true,
+			description: "24-hour time format without seconds",
+		},
+		{
+			name:        "Time with AM/PM",
+			jsonInput:   `{"time": "2:30:15 PM"}`,
+			expectTime:  true,
+			description: "12-hour time format with AM/PM",
+		},
+		{
+			name:        "Time with am/pm lowercase",
+			jsonInput:   `{"time": "2:30:15 pm"}`,
+			expectTime:  true,
+			description: "12-hour time format with lowercase am/pm",
+		},
+
+		// Date with different separators and formats
+		{
+			name:        "Date with dots YYYY.MM.DD",
+			jsonInput:   `{"date": "2023.01.15"}`,
+			expectTime:  true,
+			description: "ISO-style date with dots",
+		},
+		{
+			name:        "Date YYYYMMDD",
+			jsonInput:   `{"date": "20230115"}`,
+			expectTime:  true,
+			description: "Compact date format",
+		},
+
+		// Month name formats
+		{
+			name:        "Date with full month name",
+			jsonInput:   `{"date": "January 15, 2023"}`,
+			expectTime:  true,
+			description: "Date with full month name",
+		},
+		{
+			name:        "Date with abbreviated month",
+			jsonInput:   `{"date": "Jan 15, 2023"}`,
+			expectTime:  true,
+			description: "Date with abbreviated month name",
+		},
+		{
+			name:        "Date with month name no comma",
+			jsonInput:   `{"date": "15 January 2023"}`,
+			expectTime:  true,
+			description: "European style with month name",
+		},
+
+		// Invalid formats (should NOT be detected as time)
+		{
+			name:        "Invalid date format",
+			jsonInput:   `{"text": "2023/13/45"}`,
+			expectTime:  false,
+			description: "Invalid month and day",
+		},
+		{
+			name:        "Regular text",
+			jsonInput:   `{"text": "not a timestamp"}`,
+			expectTime:  false,
+			description: "Regular text string",
+		},
+		{
+			name:        "Number as string",
+			jsonInput:   `{"text": "12345"}`,
+			expectTime:  false,
+			description: "Plain number as string",
+		},
+		{
+			name:        "Partial date",
+			jsonInput:   `{"text": "2023"}`,
+			expectTime:  false,
+			description: "Year only should not be time",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err, "Failed to parse JSON for test: %s", tt.description)
+
+			analyzer := NewAnalyzer()
+			result, err := analyzer.Analyze(ir, "TestStruct")
+			require.NoError(t, err, "Failed to analyze for test: %s", tt.description)
+
+			require.Len(t, result.Structs, 1, "Expected exactly one struct for test: %s", tt.description)
+			structDef := result.Structs[0]
+			require.Len(t, structDef.Fields, 1, "Expected exactly one field for test: %s", tt.description)
+
+			field := structDef.Fields[0]
+			if tt.expectTime {
+				assert.Equal(t, models.Time, field.GoType.Kind, "Expected time type for test: %s", tt.description)
+				assert.Equal(t, "time.Time", field.GoType.Name, "Expected time.Time type name for test: %s", tt.description)
+				assert.Contains(t, result.Imports, "time", "Expected time import for test: %s", tt.description)
+			} else {
+				assert.NotEqual(t, models.Time, field.GoType.Kind, "Did not expect time type for test: %s", tt.description)
+				if len(result.Imports) > 0 {
+					assert.NotContains(t, result.Imports, "time", "Did not expect time import for test: %s", tt.description)
+				}
+			}
+		})
+	}
+}
+
+// TestAnalyze_UnixTimestampConfiguration tests Unix timestamp configuration options
+func TestAnalyze_UnixTimestampConfiguration(t *testing.T) {
+	tests := []struct {
+		name                 string
+		jsonInput            string
+		unixTimestampsAsTime bool
+		expectedType         models.GoTypeKind
+		expectedName         string
+		expectTimeImport     bool
+		description          string
+	}{
+		{
+			name:                 "Unix timestamp seconds - default (int64)",
+			jsonInput:            `{"timestamp": 1674641400}`,
+			unixTimestampsAsTime: false,
+			expectedType:         models.Int,
+			expectedName:         "int64",
+			expectTimeImport:     false,
+			description:          "Default behavior: Unix timestamps remain as int64",
+		},
+		{
+			name:                 "Unix timestamp seconds - as time.Time",
+			jsonInput:            `{"timestamp": 1674641400}`,
+			unixTimestampsAsTime: true,
+			expectedType:         models.Time,
+			expectedName:         "time.Time",
+			expectTimeImport:     true,
+			description:          "With configuration: Unix timestamps become time.Time",
+		},
+		{
+			name:                 "Unix timestamp milliseconds - default (int64)",
+			jsonInput:            `{"timestamp": 1674641400000}`,
+			unixTimestampsAsTime: false,
+			expectedType:         models.Int,
+			expectedName:         "int64",
+			expectTimeImport:     false,
+			description:          "Default behavior: Unix timestamp millis remain as int64",
+		},
+		{
+			name:                 "Unix timestamp milliseconds - as time.Time",
+			jsonInput:            `{"timestamp": 1674641400000}`,
+			unixTimestampsAsTime: true,
+			expectedType:         models.Time,
+			expectedName:         "time.Time",
+			expectTimeImport:     true,
+			description:          "With configuration: Unix timestamp millis become time.Time",
+		},
+		{
+			name:                 "Regular integer - unaffected by config",
+			jsonInput:            `{"count": 42}`,
+			unixTimestampsAsTime: true,
+			expectedType:         models.Int,
+			expectedName:         "int64",
+			expectTimeImport:     false,
+			description:          "Regular integers are not affected by Unix timestamp config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create config with the specific Unix timestamp setting
+			cfg := config.NewConfig()
+			cfg.Types.UnixTimestampsAsTime = tt.unixTimestampsAsTime
+
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err, "Failed to parse JSON for test: %s", tt.description)
+
+			analyzer := NewAnalyzerWithConfig(cfg)
+			result, err := analyzer.Analyze(ir, "TestStruct")
+			require.NoError(t, err, "Failed to analyze for test: %s", tt.description)
+
+			require.Len(t, result.Structs, 1, "Expected exactly one struct for test: %s", tt.description)
+			structDef := result.Structs[0]
+			require.Len(t, structDef.Fields, 1, "Expected exactly one field for test: %s", tt.description)
+
+			field := structDef.Fields[0]
+			assert.Equal(t, tt.expectedType, field.GoType.Kind, "Expected %v type for test: %s", tt.expectedType, tt.description)
+			assert.Equal(t, tt.expectedName, field.GoType.Name, "Expected %s type name for test: %s", tt.expectedName, tt.description)
+
+			if tt.expectTimeImport {
+				assert.Contains(t, result.Imports, "time", "Expected time import for test: %s", tt.description)
+			} else {
+				if len(result.Imports) > 0 {
+					assert.NotContains(t, result.Imports, "time", "Did not expect time import for test: %s", tt.description)
+				}
+			}
+		})
+	}
+}
+
 // TestAnalyze_ImprovedNumberTypes tests intelligent number type selection
 func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
 	tests := []struct {

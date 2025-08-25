@@ -365,8 +365,49 @@ GoTyper automatically detects appropriate Go types based on the JSON data:
 - Null → pointer types with `omitempty` tag
 - Objects → custom struct types
 - Arrays → slices of appropriate types
-- ISO8601 timestamps (e.g., `2023-01-01T12:00:00Z`) → `time.Time`
+- **Enhanced Time Detection** → `time.Time`
 - UUIDs (e.g., `123e4567-e89b-12d3-a456-426614174000`) → `string`
+
+### Enhanced Time Format Detection
+
+GoTyper includes comprehensive time format detection that recognizes various timestamp formats commonly found in real-world APIs and data sources:
+
+**ISO8601 and RFC3339 Formats:**
+- `2023-01-15T14:30:00Z` (RFC3339)
+- `2023-01-15T14:30:00.123456789Z` (RFC3339 with nanoseconds)
+- `2023-01-15T14:30:00+05:30` (ISO8601 with timezone)
+- `20230115T143000Z` (ISO8601 basic format)
+- `2023-W03-1T10:30:00Z` (ISO8601 week date)
+- `2023-015T10:30:00Z` (ISO8601 ordinal date)
+
+**Date-Only Formats:**
+- `2023-01-15` (ISO date)
+- `2023.01.15` (dot-separated)
+- `20230115` (compact format)
+
+**US Date Formats:**
+- `01/15/2023` or `1/15/2023` (MM/DD/YYYY)
+- `01-15-2023` or `1-15-2023` (MM-DD-YYYY)
+
+**European Date Formats:**
+- `15/01/2023` or `15/1/2023` (DD/MM/YYYY)
+- `15-01-2023` or `15-1-2023` (DD-MM-YYYY)
+- `15.01.2023` or `15.1.2023` (DD.MM.YYYY)
+
+**Time-Only Formats:**
+- `14:30:15` or `14:30` (24-hour format)
+- `2:30:15 PM` or `2:30 pm` (12-hour format with AM/PM)
+
+**Month Name Formats:**
+- `January 15, 2023` or `Jan 15, 2023` (US style)
+- `15 January 2023` (European style)
+
+**Unix Timestamps:**
+- Unix timestamps (seconds and milliseconds) are kept as `int64` by default for flexibility
+- Use `unix_timestamps_as_time: true` in configuration to convert them to `time.Time`
+
+**DateTime with Space:**
+- `2023-01-15 14:30:00` (space-separated date and time)
 
 ### Special Type Handling
 
@@ -429,6 +470,7 @@ formatting:
 types:
   force_int64: false               # Force all integers to int64
   optional_as_pointers: true       # Make nullable fields pointers
+  unix_timestamps_as_time: false   # Convert Unix timestamps to time.Time instead of int64
   mappings:
     - pattern: ".*_id$|^id$"       # Regex pattern for field names
       type: "int64"                # Target Go type

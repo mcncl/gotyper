@@ -20,13 +20,42 @@ var (
 	uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 	// Time format patterns (ordered by specificity - most specific first)
-	rfc3339Regex       = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)            // 2006-01-02T15:04:05Z
-	rfc3339NanoRegex   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}(Z|[+-]\d{2}:\d{2})$`)             // 2006-01-02T15:04:05.999999999Z
-	iso8601Regex       = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z|[+-]\d{4})?$`) // ISO8601 variants
-	dateOnlyRegex      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)                                                         // 2006-01-02
-	dateTimeRegex      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$`)                               // 2006-01-02 15:04:05
-	unixTimestampRegex = regexp.MustCompile(`^1[0-9]{9}$`)                                                                 // Unix timestamp (seconds since 1970)
-	unixMilliRegex     = regexp.MustCompile(`^1[0-9]{12}$`)                                                                // Unix timestamp in milliseconds
+	// ISO8601 and RFC3339 formats
+	rfc3339NanoRegex    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}(Z|[+-]\d{2}:\d{2})$`)             // 2006-01-02T15:04:05.999999999Z
+	rfc3339Regex        = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)            // 2006-01-02T15:04:05Z
+	iso8601Regex        = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z|[+-]\d{4})?$`) // ISO8601 variants
+	iso8601BasicRegex   = regexp.MustCompile(`^\d{8}T\d{6}Z?$`)                                                             // 20230115T103000Z
+	iso8601WeekRegex    = regexp.MustCompile(`^\d{4}-W\d{2}-\d{1}T\d{2}:\d{2}:\d{2}Z?$`)                                    // 2023-W03-1T10:30:00Z
+	iso8601OrdinalRegex = regexp.MustCompile(`^\d{4}-\d{3}T\d{2}:\d{2}:\d{2}Z?$`)                                           // 2023-015T10:30:00Z
+
+	// Date and time with space separator
+	dateTimeRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$`) // 2006-01-02 15:04:05
+
+	// Date-only formats
+	dateOnlyRegex    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)       // 2006-01-02
+	dateDotsRegex    = regexp.MustCompile(`^\d{4}\.\d{1,2}\.\d{1,2}$`) // 2023.01.15 or 2023.1.5
+	dateCompactRegex = regexp.MustCompile(`^\d{8}$`)                   // 20230115
+
+	// US date formats (MM/DD/YYYY, MM-DD-YYYY)
+	usDateSlashRegex = regexp.MustCompile(`^(0?[1-9]|1[0-2])[/](0?[1-9]|[12]\d|3[01])[/]\d{4}$`) // MM/DD/YYYY or M/D/YYYY
+	usDateDashRegex  = regexp.MustCompile(`^(0?[1-9]|1[0-2])[-](0?[1-9]|[12]\d|3[01])[-]\d{4}$`) // MM-DD-YYYY or M-D-YYYY
+
+	// European date formats (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY)
+	euroDateSlashRegex = regexp.MustCompile(`^(0?[1-9]|[12]\d|3[01])[/](0?[1-9]|1[0-2])[/]\d{4}$`) // DD/MM/YYYY or D/M/YYYY
+	euroDateDashRegex  = regexp.MustCompile(`^(0?[1-9]|[12]\d|3[01])[-](0?[1-9]|1[0-2])[-]\d{4}$`) // DD-MM-YYYY or D-M-YYYY
+	euroDateDotRegex   = regexp.MustCompile(`^(0?[1-9]|[12]\d|3[01])[.](0?[1-9]|1[0-2])[.]\d{4}$`) // DD.MM.YYYY or D.M.YYYY
+
+	// Time-only formats
+	time24HourRegex = regexp.MustCompile(`^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$`)              // HH:MM:SS or HH:MM (24-hour)
+	time12HourRegex = regexp.MustCompile(`^(0?[1-9]|1[0-2]):[0-5]\d(:[0-5]\d)?\s?[APap][Mm]$`) // H:MM:SS AM/PM or H:MM AM/PM
+
+	// Month name formats
+	monthNameRegex     = regexp.MustCompile(`^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}$`) // January 15, 2023 or Jan 15, 2023
+	monthNameEuroRegex = regexp.MustCompile(`^\d{1,2}\s+(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$`)   // 15 January 2023
+
+	// Unix timestamps (kept as separate patterns for potential configuration options)
+	unixTimestampRegex = regexp.MustCompile(`^1[0-9]{9}$`)  // Unix timestamp (seconds since 1970)
+	unixMilliRegex     = regexp.MustCompile(`^1[0-9]{12}$`) // Unix timestamp in milliseconds
 )
 
 // Analyzer analyzes JSON and determines Go types and struct definitions
@@ -171,7 +200,9 @@ func (a *Analyzer) analyzeString(s string) models.TypeInfo {
 		return models.TypeInfo{Kind: models.String, Name: "string"}
 	}
 
-	// Check for various time formats (ordered by specificity)
+	// Check for various time formats (ordered by specificity - most specific first)
+
+	// ISO8601 and RFC3339 formats (most specific)
 	if rfc3339NanoRegex.MatchString(s) {
 		a.analysisResult.Imports["time"] = struct{}{}
 		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
@@ -184,11 +215,83 @@ func (a *Analyzer) analyzeString(s string) models.TypeInfo {
 		a.analysisResult.Imports["time"] = struct{}{}
 		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 	}
+	if iso8601BasicRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if iso8601WeekRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if iso8601OrdinalRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+
+	// Date and time with space separator
+	if dateTimeRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+
+	// Month name formats (before numeric date formats to avoid conflicts)
+	if monthNameRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if monthNameEuroRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+
+	// Date-only formats
 	if dateOnlyRegex.MatchString(s) {
 		a.analysisResult.Imports["time"] = struct{}{}
 		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 	}
-	if dateTimeRegex.MatchString(s) {
+	if dateDotsRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if dateCompactRegex.MatchString(s) {
+		// Be careful with 8-digit numbers - check if they look like dates
+		// Simple validation: must be in reasonable year range and valid month/day
+		if len(s) == 8 && s[:4] >= "1900" && s[:4] <= "2100" {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+	}
+
+	// US date formats (MM/DD/YYYY, MM-DD-YYYY)
+	if usDateSlashRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if usDateDashRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+
+	// European date formats (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY)
+	if euroDateSlashRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if euroDateDashRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if euroDateDotRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+
+	// Time-only formats
+	if time24HourRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if time12HourRegex.MatchString(s) {
 		a.analysisResult.Imports["time"] = struct{}{}
 		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 	}
@@ -201,11 +304,21 @@ func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
 
 	// Check for Unix timestamps - common pattern in APIs
 	if unixTimestampRegex.MatchString(numStr) {
-		// Unix timestamp (seconds) - could be time.Time but often left as int64 for flexibility
+		if a.config.Types.UnixTimestampsAsTime {
+			// Convert Unix timestamps to time.Time when configured
+			a.analysisResult.Imports["time"] = struct{}{}
+			return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+		// Default: Unix timestamp (seconds) - kept as int64 for flexibility
 		return models.TypeInfo{Kind: models.Int, Name: "int64"}
 	}
 	if unixMilliRegex.MatchString(numStr) {
-		// Unix timestamp in milliseconds - also commonly left as int64
+		if a.config.Types.UnixTimestampsAsTime {
+			// Convert Unix timestamps to time.Time when configured
+			a.analysisResult.Imports["time"] = struct{}{}
+			return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+		// Default: Unix timestamp in milliseconds - kept as int64 for flexibility
 		return models.TypeInfo{Kind: models.Int, Name: "int64"}
 	}
 

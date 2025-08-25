@@ -32,9 +32,10 @@ type FormattingConfig struct {
 
 // TypesConfig controls type inference and mapping
 type TypesConfig struct {
-	ForceInt64         bool          `yaml:"force_int64"`
-	OptionalAsPointers bool          `yaml:"optional_as_pointers"`
-	Mappings           []TypeMapping `yaml:"mappings"`
+	ForceInt64           bool          `yaml:"force_int64"`
+	OptionalAsPointers   bool          `yaml:"optional_as_pointers"`
+	UnixTimestampsAsTime bool          `yaml:"unix_timestamps_as_time"` // Convert Unix timestamps to time.Time instead of int64
+	Mappings             []TypeMapping `yaml:"mappings"`
 }
 
 // TypeMapping defines a pattern-based type mapping
@@ -117,9 +118,10 @@ func NewConfig() *Config {
 			UseGofumpt: false,
 		},
 		Types: TypesConfig{
-			ForceInt64:         false,
-			OptionalAsPointers: true,
-			Mappings:           []TypeMapping{},
+			ForceInt64:           false,
+			OptionalAsPointers:   true,
+			UnixTimestampsAsTime: false, // Default: keep as int64 for flexibility
+			Mappings:             []TypeMapping{},
 		},
 		Naming: NamingConfig{
 			PascalCaseFields: true,
