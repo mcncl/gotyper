@@ -1,6 +1,7 @@
 # GoTyper
 
-[![Build status](https://badge.buildkite.com/1712c9069abd629008f9761299636671718b00ae25bd335268.svg?branch=main)](https://buildkite.com/no-assembly/gotyper)
+[![CI](https://github.com/mcncl/gotyper/workflows/CI/badge.svg)](https://github.com/mcncl/gotyper/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/mcncl/gotyper/branch/main/graph/badge.svg)](https://codecov.io/gh/mcncl/gotyper)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/mcncl/gotyper)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/mcncl/gotyper)](https://github.com/mcncl/gotyper/releases)
