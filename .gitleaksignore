@@ -1,0 +1,23 @@
+# GoTyper example files and test data
+example_*.json
+example_*.yml
+example_*.yaml
+**/example_*.json
+**/example_*.yml
+**/example_*.yaml
+
+# Test files with sensitive data patterns
+**/*test*.json
+**/*test*.yml
+**/*test*.yaml
+
+# Configuration examples in documentation
+*.md:.*api_key.*
+*.md:.*secret.*
+*.md:.*password.*
+*.md:.*token.*
+
+# Test API keys and secrets (not real)
+test_api_key_*
+test_secret_*
+sk-test*

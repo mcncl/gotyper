@@ -12,6 +12,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Helper function to create FieldInfo with enhanced structure for tests
+func createFieldInfo(jsonKey, goName string, goType models.TypeInfo, jsonTag string) models.FieldInfo {
+	// Extract the JSON tag value from the formatted tag
+	tagValue := jsonKey
+	if strings.Contains(jsonTag, ",omitempty") {
+		tagValue = jsonKey + ",omitempty"
+	}
+
+	return models.FieldInfo{
+		JSONKey: jsonKey,
+		GoName:  goName,
+		GoType:  goType,
+		JSONTag: jsonTag,
+		Tags:    map[string]string{"json": tagValue},
+		Comment: "",
+	}
+}
+
 func TestAnalyze_SimpleObject(t *testing.T) {
 	jsonInput := `{"name": "John Doe", "age": 30, "is_student": false, "score": 99.5}`
 	ir, err := parser.ParseString(jsonInput)
@@ -26,10 +44,10 @@ func TestAnalyze_SimpleObject(t *testing.T) {
 	assert.Equal(t, "Person", personStruct.Name)
 	assert.True(t, personStruct.IsRoot)
 	expectedFields := []models.FieldInfo{
-		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int64", IsPointer: false}, JSONTag: "`json:\"age\"`", Tags: map[string]string{"json": "age"}, Comment: ""},
-		{JSONKey: "is_student", GoName: "IsStudent", GoType: models.TypeInfo{Kind: models.Bool, Name: "bool", IsPointer: false}, JSONTag: "`json:\"is_student\"`", Tags: map[string]string{"json": "is_student"}, Comment: ""},
-		{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false}, JSONTag: "`json:\"name\"`", Tags: map[string]string{"json": "name"}, Comment: ""},
-		{JSONKey: "score", GoName: "Score", GoType: models.TypeInfo{Kind: models.Float, Name: "float64", IsPointer: false}, JSONTag: "`json:\"score\"`", Tags: map[string]string{"json": "score"}, Comment: ""},
+		createFieldInfo("age", "Age", models.TypeInfo{Kind: models.Int, Name: "int64", IsPointer: false}, "`json:\"age\"`"),
+		createFieldInfo("is_student", "IsStudent", models.TypeInfo{Kind: models.Bool, Name: "bool", IsPointer: false}, "`json:\"is_student\"`"),
+		createFieldInfo("name", "Name", models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false}, "`json:\"name\"`"),
+		createFieldInfo("score", "Score", models.TypeInfo{Kind: models.Float, Name: "float64", IsPointer: false}, "`json:\"score\"`"),
 	}
 	assert.ElementsMatch(t, expectedFields, personStruct.Fields, "Fields do not match expected (order-independent)")
 
@@ -76,9 +94,9 @@ func TestAnalyze_NestedObject(t *testing.T) {
 	assert.Equal(t, "User", userStruct.Name)
 	assert.True(t, userStruct.IsRoot)
 	expectedUserFields := []models.FieldInfo{
-		{JSONKey: "profile", GoName: "Profile", GoType: models.TypeInfo{Kind: models.Struct, Name: "UserProfile", StructName: "UserProfile", IsPointer: true}, JSONTag: "`json:\"profile,omitempty\"`"},
-		{JSONKey: "user_id", GoName: "UserId", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"user_id\"`"},
-		{JSONKey: "username", GoName: "Username", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"username\"`"},
+		createFieldInfo("profile", "Profile", models.TypeInfo{Kind: models.Struct, Name: "UserProfile", StructName: "UserProfile", IsPointer: true}, "`json:\"profile,omitempty\"`"),
+		createFieldInfo("user_id", "UserId", models.TypeInfo{Kind: models.Int, Name: "int64"}, "`json:\"user_id\"`"),
+		createFieldInfo("username", "Username", models.TypeInfo{Kind: models.String, Name: "string"}, "`json:\"username\"`"),
 	}
 	assert.ElementsMatch(t, expectedUserFields, userStruct.Fields)
 
@@ -86,9 +104,9 @@ func TestAnalyze_NestedObject(t *testing.T) {
 	assert.Equal(t, "UserProfile", profileStruct.Name)
 	assert.False(t, profileStruct.IsRoot)
 	expectedProfileFields := []models.FieldInfo{
-		{JSONKey: "address", GoName: "Address", GoType: models.TypeInfo{Kind: models.Struct, Name: "UserProfileAddress", StructName: "UserProfileAddress", IsPointer: true}, JSONTag: "`json:\"address,omitempty\"`"},
-		{JSONKey: "email", GoName: "Email", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"email\"`"},
-		{JSONKey: "full_name", GoName: "FullName", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"full_name\"`"},
+		createFieldInfo("address", "Address", models.TypeInfo{Kind: models.Struct, Name: "UserProfileAddress", StructName: "UserProfileAddress", IsPointer: true}, "`json:\"address,omitempty\"`"),
+		createFieldInfo("email", "Email", models.TypeInfo{Kind: models.String, Name: "string"}, "`json:\"email\"`"),
+		createFieldInfo("full_name", "FullName", models.TypeInfo{Kind: models.String, Name: "string"}, "`json:\"full_name\"`"),
 	}
 	assert.ElementsMatch(t, expectedProfileFields, profileStruct.Fields)
 
@@ -96,8 +114,8 @@ func TestAnalyze_NestedObject(t *testing.T) {
 	assert.Equal(t, "UserProfileAddress", addressStruct.Name)
 	assert.False(t, addressStruct.IsRoot)
 	expectedAddressFields := []models.FieldInfo{
-		{JSONKey: "city", GoName: "City", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"city\"`"},
-		{JSONKey: "street", GoName: "Street", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"street\"`"},
+		createFieldInfo("city", "City", models.TypeInfo{Kind: models.String, Name: "string"}, "`json:\"city\"`"),
+		createFieldInfo("street", "Street", models.TypeInfo{Kind: models.String, Name: "string"}, "`json:\"street\"`"),
 	}
 	assert.ElementsMatch(t, expectedAddressFields, addressStruct.Fields)
 
@@ -148,24 +166,9 @@ func TestAnalyze_SpecialTypes(t *testing.T) {
 
 	// Define expected fields (order-independent)
 	expectedFields := []models.FieldInfo{
-		{
-			JSONKey: "created_at",
-			GoName:  "CreatedAt",
-			GoType:  models.TypeInfo{Kind: models.Time, Name: "time.Time"},
-			JSONTag: "`json:\"created_at\"`",
-		},
-		{
-			JSONKey: "event_id",
-			GoName:  "EventId",
-			GoType:  models.TypeInfo{Kind: models.String, Name: "string"},
-			JSONTag: "`json:\"event_id\"`",
-		},
-		{
-			JSONKey: "maybe_null",
-			GoName:  "MaybeNull",
-			GoType:  models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true},
-			JSONTag: "`json:\"maybe_null,omitempty\"`",
-		},
+		createFieldInfo("created_at", "CreatedAt", models.TypeInfo{Kind: models.Time, Name: "time.Time"}, "`json:\"created_at\"`"),
+		createFieldInfo("event_id", "EventId", models.TypeInfo{Kind: models.String, Name: "string"}, "`json:\"event_id\"`"),
+		createFieldInfo("maybe_null", "MaybeNull", models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}, "`json:\"maybe_null,omitempty\"`"),
 	}
 
 	// Use ElementsMatch for order-independent comparison
@@ -411,18 +414,8 @@ func TestAnalyze_EmptyObjectAndArray(t *testing.T) {
 	}
 
 	expectedFields := []models.FieldInfo{
-		{
-			JSONKey: "empty_obj",
-			GoName:  "EmptyObj",
-			GoType:  emptyObjTypeInfo,
-			JSONTag: "`json:\"empty_obj,omitempty\"`",
-		},
-		{
-			JSONKey: "empty_arr",
-			GoName:  "EmptyArr",
-			GoType:  emptyArrTypeInfo,
-			JSONTag: "`json:\"empty_arr,omitempty\"`",
-		},
+		createFieldInfo("empty_obj", "EmptyObj", emptyObjTypeInfo, "`json:\"empty_obj,omitempty\"`"),
+		createFieldInfo("empty_arr", "EmptyArr", emptyArrTypeInfo, "`json:\"empty_arr,omitempty\"`"),
 	}
 
 	// Use ElementsMatch for order-independent comparison
