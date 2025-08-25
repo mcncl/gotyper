@@ -55,3 +55,7 @@ build/
 *.pkl
 .claude/
 .opencode/
+
+# Local roadmap files
+roadmap.md
+improvements.md
