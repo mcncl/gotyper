@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mcncl/gotyper/internal/models"
@@ -285,6 +286,307 @@ func TestSingularize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			assert.Equal(t, tt.expected, singularize(tt.input))
+		})
+	}
+}
+
+// TestAnalyze_MixedTypeArray tests arrays with mixed types (not all objects)
+func TestAnalyze_MixedTypeArray(t *testing.T) {
+	jsonInput := `[42, "string", true, null]` // Mixed primitives only
+	ir, err := parser.ParseString(jsonInput)
+	require.NoError(t, err)
+
+	analyzer := NewAnalyzer()
+	result, err := analyzer.Analyze(ir, "MixedArray")
+	require.NoError(t, err)
+
+	// Mixed type arrays at root level are handled as empty structs list ([]interface{} type)
+	assert.Len(t, result.Structs, 0)
+}
+
+// TestAnalyze_ArrayOfMixedObjects tests arrays with objects having different fields
+func TestAnalyze_ArrayOfMixedObjects(t *testing.T) {
+	jsonInput := `[{"id": 1, "name": "John"}, {"id": 2, "email": "jane@example.com"}, {"id": 3, "name": "Bob", "email": "bob@example.com", "active": true}]`
+	ir, err := parser.ParseString(jsonInput)
+	require.NoError(t, err)
+
+	analyzer := NewAnalyzer()
+	result, err := analyzer.Analyze(ir, "User")
+	require.NoError(t, err)
+
+	// When analyzing arrays at root level, the analyzer creates one merged struct for the elements
+	// but doesn't create a root wrapper for arrays
+	require.Len(t, result.Structs, 1)
+	userStruct := result.Structs[0]
+
+	// The merged user struct should contain all fields from all objects
+	assert.Equal(t, "User", userStruct.Name)
+	assert.False(t, userStruct.IsRoot) // Arrays themselves are not considered root structs
+	require.Len(t, userStruct.Fields, 4) // id, name, email, active
+
+	// All fields should be present - analyze merged objects to see which are optional
+	fieldMap := make(map[string]models.FieldInfo)
+	for _, field := range userStruct.Fields {
+		fieldMap[field.JSONKey] = field
+	}
+
+	// id appears in all objects - should not be pointer
+	idField := fieldMap["id"]
+	assert.Equal(t, models.Int, idField.GoType.Kind)
+	assert.False(t, idField.GoType.IsPointer)
+	assert.Equal(t, "`json:\"id\"`", idField.JSONTag)
+
+	// Check that optional fields are handled properly (exact behavior may vary)
+	assert.Contains(t, fieldMap, "name")
+	assert.Contains(t, fieldMap, "email") 
+	assert.Contains(t, fieldMap, "active")
+}
+
+// TestAnalyze_EmptyArray tests empty array handling
+func TestAnalyze_EmptyArray(t *testing.T) {
+	jsonInput := `[]`
+	ir, err := parser.ParseString(jsonInput)
+	require.NoError(t, err)
+
+	analyzer := NewAnalyzer()
+	result, err := analyzer.Analyze(ir, "EmptyArray")
+	require.NoError(t, err)
+
+	// Empty array at root level creates no structs (just analyzed as []interface{})
+	// The analyzer determines this should be typed as []interface{} slice
+	assert.Len(t, result.Structs, 0)
+	assert.Empty(t, result.Imports)
+}
+
+// TestAnalyze_NestedArrays tests arrays within arrays
+func TestAnalyze_NestedArrays(t *testing.T) {
+	jsonInput := `{"matrix": [[1, 2], [3, 4], [5, 6]]}`
+	ir, err := parser.ParseString(jsonInput)
+	require.NoError(t, err)
+
+	analyzer := NewAnalyzer()
+	result, err := analyzer.Analyze(ir, "Matrix")
+	require.NoError(t, err)
+
+	require.Len(t, result.Structs, 1)
+	matrixStruct := result.Structs[0]
+	assert.Equal(t, "Matrix", matrixStruct.Name)
+
+	require.Len(t, matrixStruct.Fields, 1)
+	field := matrixStruct.Fields[0]
+	assert.Equal(t, "matrix", field.JSONKey)
+	assert.Equal(t, models.Slice, field.GoType.Kind)
+	assert.True(t, strings.Contains(field.GoType.Name, "[][]int64"))
+}
+
+// TestAnalyze_ArrayWithNullValues tests handling of arrays with null elements mixed with objects
+func TestAnalyze_ArrayWithNullValues(t *testing.T) {
+	jsonInput := `[{"id": 1, "name": "John"}, null, {"id": 2, "name": "Jane", "email": "jane@example.com"}]`
+	ir, err := parser.ParseString(jsonInput)
+	require.NoError(t, err)
+
+	analyzer := NewAnalyzer()
+	result, err := analyzer.Analyze(ir, "UserWithNulls")
+	require.NoError(t, err)
+
+	// Arrays with null values mixed with objects still get treated as objects
+	// The analyzer creates separate structs for each distinct object shape
+	assert.Greater(t, len(result.Structs), 0)
+}
+
+// TestAnalyze_ArrayOfComplexObjects tests merging of complex nested objects
+func TestAnalyze_ArrayOfComplexObjects(t *testing.T) {
+	jsonInput := `[
+		{"user": {"id": 1, "profile": {"name": "John"}}},
+		{"user": {"id": 2, "profile": {"name": "Jane", "email": "jane@example.com"}}}
+	]`
+	ir, err := parser.ParseString(jsonInput)
+	require.NoError(t, err)
+
+	analyzer := NewAnalyzer()
+	result, err := analyzer.Analyze(ir, "UserWrapper")
+	require.NoError(t, err)
+
+	// Should create struct definitions for the nested objects
+	require.Greater(t, len(result.Structs), 1, "Should create multiple struct definitions for nested objects")
+	
+	// Find the root element struct
+	var userWrapperStruct models.StructDef
+	for _, s := range result.Structs {
+		if s.Name == "UserWrapper" {
+			userWrapperStruct = s
+			break
+		}
+	}
+	
+	assert.Equal(t, "UserWrapper", userWrapperStruct.Name)
+	require.Len(t, userWrapperStruct.Fields, 1)
+	assert.Equal(t, "user", userWrapperStruct.Fields[0].JSONKey)
+}
+
+// TestAreTypeInfosEqual tests the areTypeInfosEqual function comprehensively
+func TestAreTypeInfosEqual(t *testing.T) {
+	tests := []struct {
+		name     string
+		t1, t2   *models.TypeInfo
+		expected bool
+	}{
+		{
+			name:     "both nil",
+			t1:       nil,
+			t2:       nil,
+			expected: true,
+		},
+		{
+			name:     "one nil",
+			t1:       nil,
+			t2:       &models.TypeInfo{Kind: models.String, Name: "string"},
+			expected: false,
+		},
+		{
+			name:     "identical strings",
+			t1:       &models.TypeInfo{Kind: models.String, Name: "string"},
+			t2:       &models.TypeInfo{Kind: models.String, Name: "string"},
+			expected: true,
+		},
+		{
+			name:     "different kinds",
+			t1:       &models.TypeInfo{Kind: models.String, Name: "string"},
+			t2:       &models.TypeInfo{Kind: models.Int, Name: "string"},
+			expected: false,
+		},
+		{
+			name:     "different names",
+			t1:       &models.TypeInfo{Kind: models.String, Name: "string"},
+			t2:       &models.TypeInfo{Kind: models.String, Name: "int"},
+			expected: false,
+		},
+		{
+			name:     "different pointer status",
+			t1:       &models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false},
+			t2:       &models.TypeInfo{Kind: models.String, Name: "string", IsPointer: true},
+			expected: false,
+		},
+		{
+			name:     "different struct names",
+			t1:       &models.TypeInfo{Kind: models.Struct, Name: "User", StructName: "User"},
+			t2:       &models.TypeInfo{Kind: models.Struct, Name: "User", StructName: "Person"},
+			expected: false,
+		},
+		{
+			name: "identical slices",
+			t1: &models.TypeInfo{
+				Kind: models.Slice,
+				Name: "[]string",
+				SliceElementType: &models.TypeInfo{Kind: models.String, Name: "string"},
+			},
+			t2: &models.TypeInfo{
+				Kind: models.Slice,
+				Name: "[]string",
+				SliceElementType: &models.TypeInfo{Kind: models.String, Name: "string"},
+			},
+			expected: true,
+		},
+		{
+			name: "different slice elements",
+			t1: &models.TypeInfo{
+				Kind: models.Slice,
+				Name: "[]string",
+				SliceElementType: &models.TypeInfo{Kind: models.String, Name: "string"},
+			},
+			t2: &models.TypeInfo{
+				Kind: models.Slice,
+				Name: "[]int",
+				SliceElementType: &models.TypeInfo{Kind: models.Int, Name: "int64"},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := areTypeInfosEqual(tt.t1, tt.t2)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestAreStructDefsEquivalent tests the areStructDefsEquivalent function
+func TestAreStructDefsEquivalent(t *testing.T) {
+	tests := []struct {
+		name     string
+		s1, s2   *models.StructDef
+		expected bool
+	}{
+		{
+			name:     "both nil",
+			s1:       nil,
+			s2:       nil,
+			expected: true,
+		},
+		{
+			name:     "one nil",
+			s1:       nil,
+			s2:       &models.StructDef{Name: "User"},
+			expected: false,
+		},
+		{
+			name: "identical structs",
+			s1: &models.StructDef{
+				Name: "User",
+				Fields: []models.FieldInfo{
+					{JSONKey: "id", GoName: "ID", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"id\"`"},
+					{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"name\"`"},
+				},
+			},
+			s2: &models.StructDef{
+				Name: "User",
+				Fields: []models.FieldInfo{
+					{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"name\"`"},
+					{JSONKey: "id", GoName: "ID", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"id\"`"},
+				},
+			},
+			expected: true, // Order shouldn't matter
+		},
+		{
+			name: "different field count",
+			s1: &models.StructDef{
+				Name: "User",
+				Fields: []models.FieldInfo{
+					{JSONKey: "id", GoName: "ID", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"id\"`"},
+				},
+			},
+			s2: &models.StructDef{
+				Name: "User",
+				Fields: []models.FieldInfo{
+					{JSONKey: "id", GoName: "ID", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"id\"`"},
+					{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"name\"`"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "different field types",
+			s1: &models.StructDef{
+				Name: "User",
+				Fields: []models.FieldInfo{
+					{JSONKey: "id", GoName: "ID", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"id\"`"},
+				},
+			},
+			s2: &models.StructDef{
+				Name: "User",
+				Fields: []models.FieldInfo{
+					{JSONKey: "id", GoName: "ID", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"id\"`"},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := areStructDefsEquivalent(tt.s1, tt.s2)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
