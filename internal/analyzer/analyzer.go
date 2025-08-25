@@ -4,7 +4,7 @@ import (
 	"encoding/json" // Added for json.Number
 	"fmt"
 	"regexp"
-	"sort" // Added for sorting map keys
+	"sort"   // Added for sorting map keys
 	"strings"
 
 	"github.com/iancoleman/strcase"
@@ -16,9 +16,16 @@ const DefaultRootName = "RootType"
 
 // Regex patterns for special types
 var (
-	uuidRegex    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	rfc3339Regex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)
-	// Add more timestamp regexes if needed, e.g., for Unix timestamps or other common formats
+	uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	
+	// Time format patterns (ordered by specificity - most specific first)
+	rfc3339Regex     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)                    // 2006-01-02T15:04:05Z
+	rfc3339NanoRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}(Z|[+-]\d{2}:\d{2})$`)                      // 2006-01-02T15:04:05.999999999Z
+	iso8601Regex     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z|[+-]\d{4})?$`)         // ISO8601 variants
+	dateOnlyRegex    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)                                                                   // 2006-01-02
+	dateTimeRegex    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$`)                                       // 2006-01-02 15:04:05
+	unixTimestampRegex = regexp.MustCompile(`^1[0-9]{9}$`)                                                                         // Unix timestamp (seconds since 1970)
+	unixMilliRegex    = regexp.MustCompile(`^1[0-9]{12}$`)                                                                        // Unix timestamp in milliseconds
 )
 
 // Analyzer analyzes JSON and determines Go types and struct definitions
@@ -147,20 +154,80 @@ func (a *Analyzer) analyzeString(s string) models.TypeInfo {
 		// Use string type instead of uuid.UUID to avoid dependency in tests
 		return models.TypeInfo{Kind: models.String, Name: "string"}
 	}
+	
+	// Check for various time formats (ordered by specificity)
+	if rfc3339NanoRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
 	if rfc3339Regex.MatchString(s) {
 		a.analysisResult.Imports["time"] = struct{}{}
 		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 	}
+	if iso8601Regex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if dateOnlyRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	if dateTimeRegex.MatchString(s) {
+		a.analysisResult.Imports["time"] = struct{}{}
+		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	}
+	
 	return models.TypeInfo{Kind: models.String, Name: "string"}
 }
 
 func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
-	if _, err := num.Int64(); err == nil {
-		return models.TypeInfo{Kind: models.Int, Name: "int64"} // Prefer int64 for safety
+	numStr := string(num)
+	
+	// Check for Unix timestamps - common pattern in APIs
+	if unixTimestampRegex.MatchString(numStr) {
+		// Unix timestamp (seconds) - could be time.Time but often left as int64 for flexibility
+		return models.TypeInfo{Kind: models.Int, Name: "int64"}
 	}
-	// If it's not an int, it must be a float
+	if unixMilliRegex.MatchString(numStr) {
+		// Unix timestamp in milliseconds - also commonly left as int64
+		return models.TypeInfo{Kind: models.Int, Name: "int64"}
+	}
+	
+	// Try to parse as integer first
+	if intVal, err := num.Int64(); err == nil {
+		// Choose the most appropriate integer type based on value range
+		return a.chooseIntType(intVal)
+	}
+	
+	// If it's not an int, it's a float - use float64 as standard
+	if _, err := num.Float64(); err == nil {
+		return models.TypeInfo{Kind: models.Float, Name: "float64"}
+	}
+	
+	// Fallback (should rarely happen)
 	return models.TypeInfo{Kind: models.Float, Name: "float64"}
 }
+
+// chooseIntType selects the most appropriate integer type based on value range
+func (a *Analyzer) chooseIntType(val int64) models.TypeInfo {
+	// For JSON APIs, we generally prefer:
+	// - int for small values that fit comfortably in int32 range
+	// - int64 for larger values
+	// This balances memory usage with compatibility
+	
+	const maxInt32 = int64(2147483647)
+	const minInt32 = int64(-2147483648)
+	
+	// If the value fits in int32 range, use int (platform-dependent but typically 32/64-bit)
+	// This is more idiomatic in Go and saves memory on 32-bit platforms
+	if val >= minInt32 && val <= maxInt32 {
+		return models.TypeInfo{Kind: models.Int, Name: "int"}
+	}
+	
+	// For larger values, use int64
+	return models.TypeInfo{Kind: models.Int, Name: "int64"}
+}
+
 
 func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, isParentObject bool, isArrayElement bool) (models.TypeInfo, error) {
 	// Prepare the struct name for the candidate

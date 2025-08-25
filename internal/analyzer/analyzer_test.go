@@ -24,7 +24,7 @@ func TestAnalyze_SimpleObject(t *testing.T) {
 	assert.Equal(t, "Person", personStruct.Name)
 	assert.True(t, personStruct.IsRoot)
 	expectedFields := []models.FieldInfo{
-		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int64", IsPointer: false}, JSONTag: "`json:\"age\"`"},
+		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int", IsPointer: false}, JSONTag: "`json:\"age\"`"},
 		{JSONKey: "is_student", GoName: "IsStudent", GoType: models.TypeInfo{Kind: models.Bool, Name: "bool", IsPointer: false}, JSONTag: "`json:\"is_student\"`"},
 		{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false}, JSONTag: "`json:\"name\"`"},
 		{JSONKey: "score", GoName: "Score", GoType: models.TypeInfo{Kind: models.Float, Name: "float64", IsPointer: false}, JSONTag: "`json:\"score\"`"},
@@ -75,7 +75,7 @@ func TestAnalyze_NestedObject(t *testing.T) {
 	assert.True(t, userStruct.IsRoot)
 	expectedUserFields := []models.FieldInfo{
 		{JSONKey: "profile", GoName: "Profile", GoType: models.TypeInfo{Kind: models.Struct, Name: "UserProfile", StructName: "UserProfile", IsPointer: true}, JSONTag: "`json:\"profile,omitempty\"`"},
-		{JSONKey: "user_id", GoName: "UserId", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"user_id\"`"},
+		{JSONKey: "user_id", GoName: "UserId", GoType: models.TypeInfo{Kind: models.Int, Name: "int"}, JSONTag: "`json:\"user_id\"`"},
 		{JSONKey: "username", GoName: "Username", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"username\"`"},
 	}
 	assert.ElementsMatch(t, expectedUserFields, userStruct.Fields)
@@ -172,6 +172,194 @@ func TestAnalyze_SpecialTypes(t *testing.T) {
 	// Check imports
 	// UUID import no longer needed as we're using string type
 	assert.Contains(t, result.Imports, "time")
+}
+
+// TestAnalyze_EnhancedTimeFormats tests various time format detection
+func TestAnalyze_EnhancedTimeFormats(t *testing.T) {
+	tests := []struct {
+		name        string
+		jsonInput   string
+		expectTime  bool
+		description string
+	}{
+		{
+			name:        "RFC3339",
+			jsonInput:   `{"timestamp": "2023-01-15T10:30:00Z"}`,
+			expectTime:  true,
+			description: "Standard RFC3339 format",
+		},
+		{
+			name:        "RFC3339 with nanoseconds",
+			jsonInput:   `{"timestamp": "2023-01-15T10:30:00.123456789Z"}`,
+			expectTime:  true,
+			description: "RFC3339 with nanosecond precision",
+		},
+		{
+			name:        "ISO8601 with timezone",
+			jsonInput:   `{"timestamp": "2023-01-15T10:30:00+05:30"}`,
+			expectTime:  true,
+			description: "ISO8601 with timezone offset",
+		},
+		{
+			name:        "ISO8601 with timezone (short)",
+			jsonInput:   `{"timestamp": "2023-01-15T10:30:00+0530"}`,
+			expectTime:  true,
+			description: "ISO8601 with short timezone format",
+		},
+		{
+			name:        "Date only",
+			jsonInput:   `{"date": "2023-01-15"}`,
+			expectTime:  true,
+			description: "Date-only format",
+		},
+		{
+			name:        "DateTime with space",
+			jsonInput:   `{"datetime": "2023-01-15 10:30:00"}`,
+			expectTime:  true,
+			description: "DateTime with space separator",
+		},
+		{
+			name:        "DateTime with microseconds",
+			jsonInput:   `{"datetime": "2023-01-15 10:30:00.123456"}`,
+			expectTime:  true,
+			description: "DateTime with microsecond precision",
+		},
+		{
+			name:        "Unix timestamp (seconds)",
+			jsonInput:   `{"timestamp": 1674641400}`,
+			expectTime:  false, // Unix timestamps are kept as int64 for flexibility
+			description: "Unix timestamp in seconds",
+		},
+		{
+			name:        "Unix timestamp (milliseconds)",
+			jsonInput:   `{"timestamp": 1674641400000}`,
+			expectTime:  false, // Unix timestamps are kept as int64 for flexibility
+			description: "Unix timestamp in milliseconds",
+		},
+		{
+			name:        "Regular string",
+			jsonInput:   `{"text": "not a timestamp"}`,
+			expectTime:  false,
+			description: "Regular string should not be detected as time",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err, "Failed to parse JSON for test: %s", tt.description)
+
+			analyzer := NewAnalyzer()
+			result, err := analyzer.Analyze(ir, "TestStruct")
+			require.NoError(t, err, "Failed to analyze for test: %s", tt.description)
+
+			require.Len(t, result.Structs, 1, "Expected exactly one struct for test: %s", tt.description)
+			structDef := result.Structs[0]
+			require.Len(t, structDef.Fields, 1, "Expected exactly one field for test: %s", tt.description)
+			
+			field := structDef.Fields[0]
+			if tt.expectTime {
+				assert.Equal(t, models.Time, field.GoType.Kind, "Expected time type for test: %s", tt.description)
+				assert.Equal(t, "time.Time", field.GoType.Name, "Expected time.Time type name for test: %s", tt.description)
+				assert.Contains(t, result.Imports, "time", "Expected time import for test: %s", tt.description)
+			} else {
+				assert.NotEqual(t, models.Time, field.GoType.Kind, "Did not expect time type for test: %s", tt.description)
+				if len(result.Imports) > 0 {
+					assert.NotContains(t, result.Imports, "time", "Did not expect time import for test: %s", tt.description)
+				}
+			}
+		})
+	}
+}
+
+// TestAnalyze_ImprovedNumberTypes tests intelligent number type selection
+func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
+	tests := []struct {
+		name         string
+		jsonInput    string
+		expectedType string
+		description  string
+	}{
+		{
+			name:         "small integer",
+			jsonInput:    `{"count": 42}`,
+			expectedType: "int",
+			description:  "Small integers should use int type",
+		},
+		{
+			name:         "large integer requiring int64",
+			jsonInput:    `{"bignum": 9223372036854775807}`,
+			expectedType: "int64",
+			description:  "Large integers should use int64 type",
+		},
+		{
+			name:         "negative small integer",
+			jsonInput:    `{"temp": -42}`,
+			expectedType: "int",
+			description:  "Small negative integers should use int type",
+		},
+		{
+			name:         "unix timestamp (seconds)",
+			jsonInput:    `{"timestamp": 1674641400}`,
+			expectedType: "int64",
+			description:  "Unix timestamps should remain int64",
+		},
+		{
+			name:         "unix timestamp (milliseconds)",
+			jsonInput:    `{"timestamp": 1674641400000}`,
+			expectedType: "int64",
+			description:  "Unix timestamp millis should remain int64",
+		},
+		{
+			name:         "simple float",
+			jsonInput:    `{"price": 19.99}`,
+			expectedType: "float64",
+			description:  "Floats should use float64 as standard",
+		},
+		{
+			name:         "high precision float",
+			jsonInput:    `{"precise": 3.14159265358979323846}`,
+			expectedType: "float64",
+			description:  "High precision floats should use float64",
+		},
+		{
+			name:         "scientific notation float",
+			jsonInput:    `{"huge": 1.23e+10}`,
+			expectedType: "float64",
+			description:  "Scientific notation floats should use float64",
+		},
+		{
+			name:         "boundary int32 max",
+			jsonInput:    `{"maxint32": 2147483647}`,
+			expectedType: "int",
+			description:  "Int32 max should still use int",
+		},
+		{
+			name:         "beyond int32 max",
+			jsonInput:    `{"beyondint32": 2147483648}`,
+			expectedType: "int64",
+			description:  "Values beyond int32 should use int64",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err, "Failed to parse JSON for test: %s", tt.description)
+
+			analyzer := NewAnalyzer()
+			result, err := analyzer.Analyze(ir, "TestStruct")
+			require.NoError(t, err, "Failed to analyze for test: %s", tt.description)
+
+			require.Len(t, result.Structs, 1, "Expected exactly one struct for test: %s", tt.description)
+			structDef := result.Structs[0]
+			require.Len(t, structDef.Fields, 1, "Expected exactly one field for test: %s", tt.description)
+			
+			field := structDef.Fields[0]
+			assert.Equal(t, tt.expectedType, field.GoType.Name, 
+				"Expected %s type for test: %s, got %s", tt.expectedType, tt.description, field.GoType.Name)
+		})
+	}
 }
 
 func TestAnalyze_EmptyObjectAndArray(t *testing.T) {
@@ -376,7 +564,7 @@ func TestAnalyze_NestedArrays(t *testing.T) {
 	field := matrixStruct.Fields[0]
 	assert.Equal(t, "matrix", field.JSONKey)
 	assert.Equal(t, models.Slice, field.GoType.Kind)
-	assert.True(t, strings.Contains(field.GoType.Name, "[][]int64"))
+	assert.True(t, strings.Contains(field.GoType.Name, "[][]int"))
 }
 
 // TestAnalyze_ArrayWithNullValues tests handling of arrays with null elements mixed with objects
