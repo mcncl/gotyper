@@ -152,8 +152,3 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Update latest tag
-      if: steps.version_info.outputs.prerelease == 'false'
-      run: |
-        git tag -f latest
-        git push origin latest --force
