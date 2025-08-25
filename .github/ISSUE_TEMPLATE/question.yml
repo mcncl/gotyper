@@ -1,0 +1,72 @@
+name: Question or Discussion
+description: Ask a question or start a discussion about GoTyper
+title: "[Question]: "
+labels: ["question", "needs-triage"]
+projects: ["mcncl/1"]
+assignees:
+  - mcncl
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about GoTyper? Want to discuss usage patterns or best practices? You're in the right place!
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know about GoTyper?
+      placeholder: How do I...? What's the best way to...? Can GoTyper handle...?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context about your use case
+      placeholder: I'm trying to process JSON from... and need to...
+
+  - type: textarea
+    id: what-tried
+    attributes:
+      label: What Have You Tried?
+      description: What approaches have you already attempted?
+      placeholder: I've tried... but I'm not sure if...
+
+  - type: textarea
+    id: sample-data
+    attributes:
+      label: Sample Data (if applicable)
+      description: Share any relevant JSON or configuration examples
+      render: json
+      placeholder: |
+        {
+          "example": "data"
+        }
+
+  - type: dropdown
+    id: question-type
+    attributes:
+      label: Question Type
+      description: What kind of question is this?
+      options:
+        - Usage Help
+        - Best Practices
+        - Configuration
+        - Performance
+        - Integration
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      description: Please confirm the following
+      options:
+        - label: I have read the README and documentation
+          required: true
+        - label: I have searched for existing issues that might answer my question
+          required: true

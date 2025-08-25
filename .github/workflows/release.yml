@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v1.2.3
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for creating releases
+      packages: write  # Required for uploading artifacts
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for changelog generation
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Run tests
+      run: |
+        go test -race -coverprofile=coverage.out ./...
+        go tool cover -html=coverage.out -o coverage.html
+
+    - name: Build binaries
+      run: |
+        # Create dist directory
+        mkdir -p dist
+        
+        # Build for different platforms
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/gotyper-linux-amd64 .
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/gotyper-linux-arm64 .
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/gotyper-darwin-amd64 .
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/gotyper-darwin-arm64 .
+        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/gotyper-windows-amd64.exe .
+        GOOS=windows GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/gotyper-windows-arm64.exe .
+
+    - name: Create archives
+      run: |
+        cd dist
+        
+        # Create tar.gz for Linux and macOS
+        tar -czf gotyper-linux-amd64.tar.gz gotyper-linux-amd64
+        tar -czf gotyper-linux-arm64.tar.gz gotyper-linux-arm64
+        tar -czf gotyper-darwin-amd64.tar.gz gotyper-darwin-amd64
+        tar -czf gotyper-darwin-arm64.tar.gz gotyper-darwin-arm64
+        
+        # Create zip for Windows
+        zip gotyper-windows-amd64.zip gotyper-windows-amd64.exe
+        zip gotyper-windows-arm64.zip gotyper-windows-arm64.exe
+        
+        # Create checksums
+        sha256sum *.tar.gz *.zip > checksums.txt
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Get the previous tag
+        PREV_TAG=$(git tag --sort=-version:refname | grep -v "${{ github.ref_name }}" | head -n 1)
+        
+        if [ -z "$PREV_TAG" ]; then
+          echo "First release - using all commits"
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+        else
+          echo "Generating changelog from $PREV_TAG to ${{ github.ref_name }}"
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges "$PREV_TAG..${{ github.ref_name }}")
+        fi
+        
+        # Save changelog to file and step output
+        echo "$CHANGELOG" > CHANGELOG.md
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Extract version info
+      id: version_info
+      run: |
+        VERSION=${{ github.ref_name }}
+        VERSION_NUM=${VERSION#v}  # Remove 'v' prefix
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "version_num=$VERSION_NUM" >> $GITHUB_OUTPUT
+        
+        # Determine if this is a prerelease (contains alpha, beta, rc)
+        if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: ${{ steps.version_info.outputs.version }}
+        body: |
+          ## What's Changed
+          
+          ${{ steps.changelog.outputs.changelog }}
+          
+          ## Installation
+          
+          ### Download Binary
+          Download the appropriate binary for your platform from the assets below.
+          
+          ### Using Go Install
+          ```bash
+          go install github.com/mcncl/gotyper@${{ steps.version_info.outputs.version }}
+          ```
+          
+          ### Homebrew (if available)
+          ```bash
+          brew install mcncl/tap/gotyper
+          ```
+          
+          ## Verification
+          
+          All binaries are signed and can be verified using the provided checksums:
+          ```bash
+          sha256sum -c checksums.txt
+          ```
+          
+          ## Full Changelog
+          **Full Changelog**: https://github.com/mcncl/gotyper/compare/${{ env.PREV_TAG || 'initial' }}...${{ github.ref_name }}
+        files: |
+          dist/*.tar.gz
+          dist/*.zip
+          dist/checksums.txt
+          coverage.html
+        prerelease: ${{ steps.version_info.outputs.prerelease }}
+        draft: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update latest tag
+      if: steps.version_info.outputs.prerelease == 'false'
+      run: |
+        git tag -f latest
+        git push origin latest --force
