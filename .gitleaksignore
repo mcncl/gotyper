@@ -5,6 +5,8 @@ example_*.yaml
 **/example_*.json
 **/example_*.yml
 **/example_*.yaml
+*.example.yml
+*.example.yaml
 
 # Test files with sensitive data patterns
 **/*test*.json

@@ -69,6 +69,8 @@ gotyper
 
 GoTyper supports YAML configuration files for advanced customization. The tool automatically searches for `.gotyper.yml`, `.gotyper.yaml`, `gotyper.yml`, or `gotyper.yaml` in the current directory and parent directories.
 
+> **Example Configuration**: See [`.gotyper.example.yml`](.gotyper.example.yml) for a comprehensive configuration example with all available options.
+
 ### Basic Configuration
 
 Create a `.gotyper.yml` file in your project root:
