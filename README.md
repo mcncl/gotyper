@@ -1,5 +1,10 @@
 # GoTyper
 
+[![Build status](https://badge.buildkite.com/1712c9069abd629008f9761299636671718b00ae25bd335268.svg?branch=main)](https://buildkite.com/no-assembly/gotyper)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/mcncl/gotyper)](https://golang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/mcncl/gotyper)](https://github.com/mcncl/gotyper/releases)
+
 <p align="center">
     <img src="./images/icon.png" alt="GoTyper" width="200"/>
 </p>
