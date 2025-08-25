@@ -1,0 +1,10 @@
+package: "models"
+root_name: "ApiResponse"
+types:
+  mappings:
+    - pattern: ".*_id$"
+      type: "int64"
+      comment: "Database ID"
+naming:
+  field_mappings:
+    "user_id": "UserID"

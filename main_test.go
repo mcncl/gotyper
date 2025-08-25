@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/mcncl/gotyper/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,8 +32,14 @@ func TestRun_SimpleJSON(t *testing.T) {
 	CLI.RootName = "Person"
 	CLI.Format = true
 
-	// Run the function
-	ctx := &Context{Debug: false}
+	// Create context with proper config
+	cfg := config.NewConfig()
+	cfg.Package = "models"
+	cfg.RootName = "Person"
+	ctx := &Context{
+		Debug:  false,
+		Config: cfg,
+	}
 	err = run(ctx)
 	require.NoError(t, err)
 }
@@ -67,8 +74,14 @@ func TestRun_WithOutputFile(t *testing.T) {
 	CLI.RootName = "User"
 	CLI.Format = true
 
-	// Run the function
-	ctx := &Context{Debug: false}
+	// Create context with proper config
+	cfg := config.NewConfig()
+	cfg.Package = "test"
+	cfg.RootName = "User"
+	ctx := &Context{
+		Debug:  false,
+		Config: cfg,
+	}
 	err = run(ctx)
 	require.NoError(t, err)
 
@@ -306,7 +319,13 @@ func TestFullPipeline_FileToFile(t *testing.T) {
 	CLI.Format = true
 
 	// Run full pipeline
-	ctx := &Context{Debug: false}
+	cfg := config.NewConfig()
+	cfg.Package = "integration"
+	cfg.RootName = "UserResponse"
+	ctx := &Context{
+		Debug:  false,
+		Config: cfg,
+	}
 	err = run(ctx)
 	require.NoError(t, err)
 
@@ -346,7 +365,13 @@ func TestRun_WithFormatting(t *testing.T) {
 	CLI.Package = "test"
 	CLI.Format = true
 
-	ctx := &Context{Debug: false}
+	// Create context with proper config
+	cfg := config.NewConfig()
+	cfg.Package = "test"
+	ctx := &Context{
+		Debug:  false,
+		Config: cfg,
+	}
 	err = run(ctx)
 	require.NoError(t, err)
 }
@@ -371,7 +396,13 @@ func TestRun_WithoutFormatting(t *testing.T) {
 	CLI.Package = "test"
 	CLI.Format = false
 
-	ctx := &Context{Debug: false}
+	// Create context with proper config
+	cfg := config.NewConfig()
+	cfg.Package = "test"
+	ctx := &Context{
+		Debug:  false,
+		Config: cfg,
+	}
 	err = run(ctx)
 	require.NoError(t, err)
 }

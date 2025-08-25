@@ -41,7 +41,7 @@ func TestIntegration_ParserAnalyzerGenerator(t *testing.T) {
 type User struct {
 	IsActive bool         ` + "`json:\"is_active\"`" + `
 	Profile  *UserProfile ` + "`json:\"profile,omitempty\"`" + `
-	UserId   int          ` + "`json:\"user_id\"`" + `
+	UserId   int64        ` + "`json:\"user_id\"`" + `
 	Username string       ` + "`json:\"username\"`" + `
 }
 

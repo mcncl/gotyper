@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/iancoleman/strcase"
+	"github.com/mcncl/gotyper/internal/config"
 	"github.com/mcncl/gotyper/internal/models"
 )
 
@@ -35,6 +36,8 @@ type Analyzer struct {
 	structNames map[string]int
 	// analysisResult holds discovered structs and imports
 	analysisResult models.AnalysisResult
+	// config holds configuration settings for analysis
+	config *config.Config
 }
 
 // NewAnalyzer creates a new Analyzer instance.
@@ -45,6 +48,19 @@ func NewAnalyzer() *Analyzer {
 			Structs: make([]models.StructDef, 0),
 			Imports: make(map[string]struct{}),
 		},
+		config: config.NewConfig(), // Use default config if none provided
+	}
+}
+
+// NewAnalyzerWithConfig creates a new Analyzer instance with custom configuration.
+func NewAnalyzerWithConfig(cfg *config.Config) *Analyzer {
+	return &Analyzer{
+		structNames: make(map[string]int),
+		analysisResult: models.AnalysisResult{
+			Structs: make([]models.StructDef, 0),
+			Imports: make(map[string]struct{}),
+		},
+		config: cfg,
 	}
 }
 
@@ -55,7 +71,7 @@ func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName 
 	}
 
 	// Ensure the root name is a valid Go identifier and PascalCase
-	rootStructName = a.generateUniqueStructName(jsonKeyToPascalCase(rootStructName))
+	rootStructName = a.generateUniqueStructName(a.getFieldName(rootStructName))
 
 	var rootTypeInfo models.TypeInfo
 	var err error
@@ -194,9 +210,9 @@ func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
 	}
 
 	// Try to parse as integer first
-	if intVal, err := num.Int64(); err == nil {
-		// Choose the most appropriate integer type based on value range
-		return a.chooseIntType(intVal)
+	if _, err := num.Int64(); err == nil {
+		// Use int64 for all integers - simpler and more consistent for JSON APIs
+		return models.TypeInfo{Kind: models.Int, Name: "int64"}
 	}
 
 	// If it's not an int, it's a float - use float64 as standard
@@ -208,31 +224,11 @@ func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
 	return models.TypeInfo{Kind: models.Float, Name: "float64"}
 }
 
-// chooseIntType selects the most appropriate integer type based on value range
-func (a *Analyzer) chooseIntType(val int64) models.TypeInfo {
-	// For JSON APIs, we generally prefer:
-	// - int for small values that fit comfortably in int32 range
-	// - int64 for larger values
-	// This balances memory usage with compatibility
-
-	const maxInt32 = int64(2147483647)
-	const minInt32 = int64(-2147483648)
-
-	// If the value fits in int32 range, use int (platform-dependent but typically 32/64-bit)
-	// This is more idiomatic in Go and saves memory on 32-bit platforms
-	if val >= minInt32 && val <= maxInt32 {
-		return models.TypeInfo{Kind: models.Int, Name: "int"}
-	}
-
-	// For larger values, use int64
-	return models.TypeInfo{Kind: models.Int, Name: "int64"}
-}
-
 func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, isParentObject bool, isArrayElement bool) (models.TypeInfo, error) {
 	// Prepare the struct name for the candidate
 	structName := suggestedName
 	if !isParentObject { // If it's a nested object, convert its key to PascalCase
-		structName = jsonKeyToPascalCase(suggestedName)
+		structName = a.getFieldName(suggestedName)
 	}
 
 	// Create a candidate struct definition with fields
@@ -250,7 +246,37 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 
 	for _, key := range keys {
 		val := obj[key]
-		goFieldName := jsonKeyToPascalCase(key)
+		goFieldName := a.getFieldName(key)
+
+		// Check for custom type mapping first
+		if mapping, found := a.checkTypeMapping(key); found {
+			fieldTypeInfo := models.TypeInfo{
+				Kind: models.String, // Default to string, but this will be overridden
+				Name: mapping.Type,
+			}
+
+			// Add import if specified
+			if mapping.Import != "" {
+				a.analysisResult.Imports[mapping.Import] = struct{}{}
+			}
+
+			// Handle nullable fields: if original JSON value was null, make it a pointer
+			if val == nil {
+				fieldTypeInfo.IsPointer = true
+			}
+
+			jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
+
+			// Add field to the candidate struct
+			candidateStructDef.Fields = append(candidateStructDef.Fields, models.FieldInfo{
+				JSONKey: key,
+				GoName:  goFieldName,
+				GoType:  fieldTypeInfo,
+				JSONTag: jsonTag,
+			})
+			continue
+		}
+
 		// For nested structs, suggest a name based on the current struct name and field name
 		nestedStructSuggestedName := structName + goFieldName
 
@@ -289,7 +315,7 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 	}
 
 	// Suggested name for elements of an array should be singularized form of the array's suggested name.
-	elementSuggestedName := singularize(jsonKeyToPascalCase(suggestedElementName))
+	elementSuggestedName := singularize(a.getFieldName(suggestedElementName))
 
 	// Check if this is a root array (if the suggested name is already in structNames with count 1)
 	// For root arrays in tests like TestAnalyze_ArrayOfObjects, we want to preserve the exact name
@@ -444,6 +470,16 @@ func jsonKeyToPascalCase(jsonKey string) string {
 	return pascalCaseName
 }
 
+// getFieldName returns the Go field name for a JSON key using configuration
+func (a *Analyzer) getFieldName(jsonKey string) string {
+	return a.config.GetFieldName(jsonKey)
+}
+
+// checkTypeMapping checks if a field name matches any configured type mappings
+func (a *Analyzer) checkTypeMapping(fieldName string) (config.TypeMapping, bool) {
+	return a.config.FindTypeMapping(fieldName)
+}
+
 // singularize attempts to convert a plural name to a singular one.
 // This is a basic implementation and might need a more robust library for complex cases.
 var knownSingulars = map[string]string{
@@ -590,7 +626,7 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 		// Process each field in the object
 		for _, key := range keys {
 			val := obj[key]
-			goFieldName := jsonKeyToPascalCase(key)
+			goFieldName := a.getFieldName(key)
 			// For nested structs, suggest a name based on the current struct name and field name
 			nestedStructSuggestedName := suggestedName + goFieldName
 
@@ -635,7 +671,7 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 	// Now process all the nested object fields we collected
 	for key, nestedObjects := range nestedObjectFields {
 		if len(nestedObjects) > 0 {
-			goFieldName := jsonKeyToPascalCase(key)
+			goFieldName := a.getFieldName(key)
 			nestedStructSuggestedName := suggestedName + goFieldName
 
 			// Create a merged struct for this nested field

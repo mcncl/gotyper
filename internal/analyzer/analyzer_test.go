@@ -24,7 +24,7 @@ func TestAnalyze_SimpleObject(t *testing.T) {
 	assert.Equal(t, "Person", personStruct.Name)
 	assert.True(t, personStruct.IsRoot)
 	expectedFields := []models.FieldInfo{
-		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int", IsPointer: false}, JSONTag: "`json:\"age\"`"},
+		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int64", IsPointer: false}, JSONTag: "`json:\"age\"`"},
 		{JSONKey: "is_student", GoName: "IsStudent", GoType: models.TypeInfo{Kind: models.Bool, Name: "bool", IsPointer: false}, JSONTag: "`json:\"is_student\"`"},
 		{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false}, JSONTag: "`json:\"name\"`"},
 		{JSONKey: "score", GoName: "Score", GoType: models.TypeInfo{Kind: models.Float, Name: "float64", IsPointer: false}, JSONTag: "`json:\"score\"`"},
@@ -75,7 +75,7 @@ func TestAnalyze_NestedObject(t *testing.T) {
 	assert.True(t, userStruct.IsRoot)
 	expectedUserFields := []models.FieldInfo{
 		{JSONKey: "profile", GoName: "Profile", GoType: models.TypeInfo{Kind: models.Struct, Name: "UserProfile", StructName: "UserProfile", IsPointer: true}, JSONTag: "`json:\"profile,omitempty\"`"},
-		{JSONKey: "user_id", GoName: "UserId", GoType: models.TypeInfo{Kind: models.Int, Name: "int"}, JSONTag: "`json:\"user_id\"`"},
+		{JSONKey: "user_id", GoName: "UserId", GoType: models.TypeInfo{Kind: models.Int, Name: "int64"}, JSONTag: "`json:\"user_id\"`"},
 		{JSONKey: "username", GoName: "Username", GoType: models.TypeInfo{Kind: models.String, Name: "string"}, JSONTag: "`json:\"username\"`"},
 	}
 	assert.ElementsMatch(t, expectedUserFields, userStruct.Fields)
@@ -283,8 +283,8 @@ func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
 		{
 			name:         "small integer",
 			jsonInput:    `{"count": 42}`,
-			expectedType: "int",
-			description:  "Small integers should use int type",
+			expectedType: "int64",
+			description:  "All integers should use int64 type",
 		},
 		{
 			name:         "large integer requiring int64",
@@ -295,8 +295,8 @@ func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
 		{
 			name:         "negative small integer",
 			jsonInput:    `{"temp": -42}`,
-			expectedType: "int",
-			description:  "Small negative integers should use int type",
+			expectedType: "int64",
+			description:  "All integers should use int64 type",
 		},
 		{
 			name:         "unix timestamp (seconds)",
@@ -331,14 +331,14 @@ func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
 		{
 			name:         "boundary int32 max",
 			jsonInput:    `{"maxint32": 2147483647}`,
-			expectedType: "int",
-			description:  "Int32 max should still use int",
+			expectedType: "int64",
+			description:  "All integers should use int64 type",
 		},
 		{
 			name:         "beyond int32 max",
 			jsonInput:    `{"beyondint32": 2147483648}`,
 			expectedType: "int64",
-			description:  "Values beyond int32 should use int64",
+			description:  "All integers should use int64 type",
 		},
 	}
 

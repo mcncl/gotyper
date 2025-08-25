@@ -9,6 +9,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/mcncl/gotyper/internal/analyzer"
+	"github.com/mcncl/gotyper/internal/config"
 	"github.com/mcncl/gotyper/internal/errors"
 	"github.com/mcncl/gotyper/internal/formatter"
 	"github.com/mcncl/gotyper/internal/generator"
@@ -22,6 +23,7 @@ var CLI struct {
 	Output      string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
 	Package     string `help:"Package name for generated code." short:"p" default:"main"`
 	RootName    string `help:"Name for the root struct." short:"r" default:"RootType"`
+	Config      string `help:"Path to config file. If not specified, searches for .gotyper.yml in current and parent directories." short:"c" type:"path"`
 	Format      bool   `help:"Format the output code according to Go standards." short:"f" default:"true"`
 	Debug       bool   `help:"Enable debug logging." short:"d"`
 	Version     bool   `help:"Show version information." short:"v"`
@@ -30,7 +32,8 @@ var CLI struct {
 
 // Context holds the runtime context
 type Context struct {
-	Debug bool
+	Debug  bool
+	Config *config.Config
 }
 
 // Version information
@@ -54,7 +57,12 @@ func main() {
 			CLI.Package = "main"
 		}
 		// When no args provided, run directly without parsing arguments
-		err := run(&Context{Debug: CLI.Debug})
+		ctx, err := createContext()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
+			os.Exit(1)
+		}
+		err = run(ctx)
 		if err != nil {
 			// Use our custom error handling to provide user-friendly error messages
 			fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
@@ -68,7 +76,7 @@ func main() {
 	}
 
 	// Parse the command line arguments
-	ctx, err := parser.Parse(os.Args[1:])
+	_, err := parser.Parse(os.Args[1:])
 	if err != nil {
 		// If there's an error parsing arguments, the usage will already be shown by kong.UsageOnError()
 		os.Exit(1)
@@ -80,7 +88,13 @@ func main() {
 		return
 	}
 
-	err = run(&Context{Debug: CLI.Debug})
+	ctx, err := createContext()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
+		os.Exit(1)
+	}
+
+	err = run(ctx)
 	if err != nil {
 		// Use our custom error handling to provide user-friendly error messages
 		fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
@@ -91,14 +105,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// If we have a command with a Run function, call it
-	if ctx.Command() != "" {
-		err = ctx.Run()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
-			os.Exit(1)
-		}
+	// Note: Kong's ctx.Run() is not used in this application since we handle everything in run()
+}
+
+// createContext loads configuration and creates a runtime context
+func createContext() (*Context, error) {
+	// Determine config file path
+	configPath := CLI.Config
+	if configPath == "" {
+		// Search for config file automatically
+		configPath = config.FindConfigFile()
 	}
+
+	// Load configuration with CLI precedence
+	cfg, err := config.LoadConfigWithCLI(configPath, CLI.Package, CLI.RootName, false)
+	if err != nil {
+		return nil, errors.NewInputError("failed to load configuration", err)
+	}
+
+	return &Context{
+		Debug:  CLI.Debug,
+		Config: cfg,
+	}, nil
 }
 
 // run executes the main program logic
@@ -110,22 +138,22 @@ func run(ctx *Context) error {
 		return err
 	}
 
-	// 2. Analyze JSON structure
-	analyzerInst := analyzer.NewAnalyzer()
-	analysisResult, err := analyzerInst.Analyze(ir, CLI.RootName)
+	// 2. Analyze JSON structure using configuration
+	analyzerInst := analyzer.NewAnalyzerWithConfig(ctx.Config)
+	analysisResult, err := analyzerInst.Analyze(ir, ctx.Config.RootName)
 	if err != nil {
 		return errors.NewAnalysisError("failed to analyze JSON structure", err)
 	}
 
-	// 3. Generate Go structs
+	// 3. Generate Go structs using configuration
 	generatorInst := generator.NewGenerator()
-	code, err := generatorInst.GenerateStructs(analysisResult, CLI.Package)
+	code, err := generatorInst.GenerateStructs(analysisResult, ctx.Config.Package)
 	if err != nil {
 		return errors.NewGenerateError("failed to generate Go structs", err)
 	}
 
-	// 4. Format the code if requested
-	if CLI.Format {
+	// 4. Format the code if requested and enabled in config
+	if CLI.Format && ctx.Config.Formatting.Enabled {
 		formatterInst := formatter.NewFormatter()
 		code, err = formatterInst.Format(code)
 		if err != nil {
