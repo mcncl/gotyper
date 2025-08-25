@@ -46,10 +46,12 @@ type TypeInfo struct {
 
 // FieldInfo represents a field within a Go struct to be generated.
 type FieldInfo struct {
-	JSONKey string   `json:"json_key"` // Original key from JSON
-	GoName  string   `json:"go_name"`  // Generated Go field name (e.g., "UserName" from "user_name")
-	GoType  TypeInfo `json:"go_type"`  // Inferred Go type for this field
-	JSONTag string   `json:"json_tag"` // e.g., `json:"user_name,omitempty"`
+	JSONKey string            `json:"json_key"` // Original key from JSON
+	GoName  string            `json:"go_name"`  // Generated Go field name (e.g., "UserName" from "user_name")
+	GoType  TypeInfo          `json:"go_type"`  // Inferred Go type for this field
+	JSONTag string            `json:"json_tag"` // e.g., `json:"user_name,omitempty"`
+	Tags    map[string]string `json:"tags"`     // Multiple tag formats: {"json": "user_name,omitempty", "yaml": "user_name", "xml": "user_name"}
+	Comment string            `json:"comment"`  // Field comment
 }
 
 // StructDef represents a Go struct definition that needs to be generated.

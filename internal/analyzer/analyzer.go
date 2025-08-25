@@ -260,12 +260,18 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 				a.analysisResult.Imports[mapping.Import] = struct{}{}
 			}
 
+			// Check if field should be skipped completely
+			if a.config.ShouldSkipField(key) {
+				continue // Skip this field entirely
+			}
+
 			// Handle nullable fields: if original JSON value was null, make it a pointer
 			if val == nil {
 				fieldTypeInfo.IsPointer = true
 			}
 
-			jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
+			// Generate enhanced tags
+			jsonTag, tags, comment := a.generateFieldTags(key, fieldTypeInfo, val)
 
 			// Add field to the candidate struct
 			candidateStructDef.Fields = append(candidateStructDef.Fields, models.FieldInfo{
@@ -273,6 +279,8 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 				GoName:  goFieldName,
 				GoType:  fieldTypeInfo,
 				JSONTag: jsonTag,
+				Tags:    tags,
+				Comment: comment,
 			})
 			continue
 		}
@@ -286,12 +294,18 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 			return models.TypeInfo{}, fmt.Errorf("failed to analyze field '%s' in object '%s': %w", key, structName, err)
 		}
 
+		// Check if field should be skipped completely
+		if a.config.ShouldSkipField(key) {
+			continue // Skip this field entirely
+		}
+
 		// Handle nullable fields: if original JSON value was null, or if it's an object/array that could be null.
 		if val == nil || fieldTypeInfo.Kind == models.Struct || fieldTypeInfo.Kind == models.Slice || fieldTypeInfo.Kind == models.Interface {
 			fieldTypeInfo.IsPointer = true
 		}
 
-		jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
+		// Generate enhanced tags
+		jsonTag, tags, comment := a.generateFieldTags(key, fieldTypeInfo, val)
 
 		// Add field to the candidate struct
 		candidateStructDef.Fields = append(candidateStructDef.Fields, models.FieldInfo{
@@ -299,6 +313,8 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 			GoName:  goFieldName,
 			GoType:  fieldTypeInfo,
 			JSONTag: jsonTag,
+			Tags:    tags,
+			Comment: comment,
 		})
 	}
 
@@ -480,6 +496,92 @@ func (a *Analyzer) checkTypeMapping(fieldName string) (config.TypeMapping, bool)
 	return a.config.FindTypeMapping(fieldName)
 }
 
+// generateFieldTags creates tags for a field based on configuration
+func (a *Analyzer) generateFieldTags(jsonKey string, fieldTypeInfo models.TypeInfo, originalValue models.JSONValue) (string, map[string]string, string) {
+	tags := make(map[string]string)
+	var comment string
+
+	// Generate JSON tag with custom options
+	jsonTag := a.generateJSONTag(jsonKey, fieldTypeInfo, originalValue)
+	tags["json"] = strings.Trim(jsonTag, "`")
+	tags["json"] = strings.TrimPrefix(tags["json"], "json:")
+	tags["json"] = strings.Trim(tags["json"], "\"")
+
+	// Generate additional format tags
+	for _, format := range a.config.JSONTags.AdditionalTags {
+		switch format {
+		case "yaml":
+			tags["yaml"] = a.generateYAMLTag(jsonKey, fieldTypeInfo)
+		case "xml":
+			tags["xml"] = a.generateXMLTag(jsonKey, fieldTypeInfo)
+		}
+	}
+
+	// Check for custom tag options and comments
+	if tagOption, found := a.config.FindTagOption(jsonKey); found {
+		if tagOption.Options != "" {
+			// Override JSON tag with custom options
+			tags["json"] = jsonKey + "," + tagOption.Options
+		}
+		if tagOption.Comment != "" {
+			comment = tagOption.Comment
+		}
+	}
+
+	// Build final tag string
+	var tagParts []string
+	if jsonValue, ok := tags["json"]; ok && jsonValue != "-" {
+		tagParts = append(tagParts, fmt.Sprintf("json:\"%s\"", jsonValue))
+	} else if jsonValue == "-" {
+		tagParts = append(tagParts, "json:\"-\"")
+	}
+
+	for _, format := range a.config.JSONTags.AdditionalTags {
+		if value, ok := tags[format]; ok {
+			tagParts = append(tagParts, fmt.Sprintf("%s:\"%s\"", format, value))
+		}
+	}
+
+	finalTag := "`" + strings.Join(tagParts, " ") + "`"
+	return finalTag, tags, comment
+}
+
+// generateJSONTag creates a JSON tag with proper omitempty handling
+func (a *Analyzer) generateJSONTag(jsonKey string, fieldTypeInfo models.TypeInfo, originalValue models.JSONValue) string {
+	omitempty := a.determineOmitempty(originalValue, fieldTypeInfo)
+	return fmt.Sprintf("`json:\"%s%s\"`", jsonKey, omitempty)
+}
+
+// generateYAMLTag creates a YAML tag
+func (a *Analyzer) generateYAMLTag(jsonKey string, fieldTypeInfo models.TypeInfo) string {
+	// YAML uses similar naming conventions as JSON
+	return jsonKey
+}
+
+// generateXMLTag creates an XML tag
+func (a *Analyzer) generateXMLTag(jsonKey string, fieldTypeInfo models.TypeInfo) string {
+	// XML typically uses similar naming but could have different conventions
+	return jsonKey
+}
+
+// determineOmitempty decides if ",omitempty" should be added to the JSON tag using config
+func (a *Analyzer) determineOmitempty(originalValue models.JSONValue, typeInfo models.TypeInfo) string {
+	if typeInfo.IsPointer && a.config.JSONTags.OmitemptyForPointers {
+		return ",omitempty"
+	}
+
+	if (typeInfo.Kind == models.Slice) && a.config.JSONTags.OmitemptyForSlices {
+		return ",omitempty"
+	}
+
+	// For interfaces (usually null values), always use omitempty
+	if typeInfo.Kind == models.Interface {
+		return ",omitempty"
+	}
+
+	return ""
+}
+
 // singularize attempts to convert a plural name to a singular one.
 // This is a basic implementation and might need a more robust library for complex cases.
 var knownSingulars = map[string]string{
@@ -535,31 +637,6 @@ func singularize(plural string) string {
 	}
 
 	return plural // Default to original if no simple rule applies
-}
-
-// determineOmitempty decides if ",omitempty" should be added to the JSON tag.
-// Generally, pointers, slices, maps, and interfaces are candidates for omitempty.
-// Basic types (string, int, bool, float) are usually not omitempty unless they are pointers.
-func determineOmitempty(originalValue models.JSONValue, typeInfo models.TypeInfo) string {
-	if typeInfo.IsPointer {
-		return ",omitempty"
-	}
-	switch typeInfo.Kind {
-	case models.Slice, models.Interface: // Structs are often pointers if nullable, handled by IsPointer
-		return ",omitempty"
-	case models.Struct:
-		// Structs themselves are not omitempty unless they are pointers.
-		// If a struct field must be a pointer to be omitempty, IsPointer should be true.
-		return ""
-	default:
-		// For primitive types, only add omitempty if the original value was explicitly null.
-		// However, our type system makes primitives non-pointer by default.
-		// If a primitive *could* be null in JSON, it should ideally be a pointer type.
-		if originalValue == nil { // This check might be redundant if typeInfo.IsPointer covers it
-			return ",omitempty"
-		}
-		return ""
-	}
 }
 
 // areTypeInfosEqual checks if two TypeInfo objects represent the same type.
@@ -648,12 +725,18 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 				return models.StructDef{}, fmt.Errorf("failed to analyze field '%s' in merged object: %w", key, err)
 			}
 
+			// Check if field should be skipped completely
+			if a.config.ShouldSkipField(key) {
+				continue // Skip this field entirely
+			}
+
 			// Handle nullable fields
 			if val == nil || fieldTypeInfo.Kind == models.Struct || fieldTypeInfo.Kind == models.Slice || fieldTypeInfo.Kind == models.Interface {
 				fieldTypeInfo.IsPointer = true
 			}
 
-			jsonTag := fmt.Sprintf("`json:\"%s%s\"`", key, determineOmitempty(val, fieldTypeInfo))
+			// Generate enhanced tags
+			jsonTag, tags, comment := a.generateFieldTags(key, fieldTypeInfo, val)
 
 			// Create field info
 			fieldInfo := models.FieldInfo{
@@ -661,6 +744,8 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 				GoName:  goFieldName,
 				GoType:  fieldTypeInfo,
 				JSONTag: jsonTag,
+				Tags:    tags,
+				Comment: comment,
 			}
 
 			// Add to our map of all fields
@@ -686,7 +771,8 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 			// Make it a pointer since it's a nested object
 			typeInfo.IsPointer = true
 
-			jsonTag := fmt.Sprintf("`json:\"%s,omitempty\"`", key)
+			// Generate enhanced tags
+			jsonTag, tags, comment := a.generateFieldTags(key, typeInfo, nil)
 
 			// Create field info for this nested object
 			fieldInfo := models.FieldInfo{
@@ -694,6 +780,8 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 				GoName:  goFieldName,
 				GoType:  typeInfo,
 				JSONTag: jsonTag,
+				Tags:    tags,
+				Comment: comment,
 			}
 
 			// Add to our map of all fields

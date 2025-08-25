@@ -375,3 +375,242 @@ formatting:
 	assert.False(t, cfg.Formatting.Enabled)
 	assert.Equal(t, "RootType", cfg.RootName) // Default value
 }
+
+// TestEnhancedTagConfiguration tests the new enhanced tagging configuration options
+func TestEnhancedTagConfiguration(t *testing.T) {
+	yamlContent := `
+package: "models"
+root_name: "APIResponse"
+json_tags:
+  omitempty_for_pointers: true
+  omitempty_for_slices: true
+  additional_tags:
+    - "yaml"
+    - "xml"
+  custom_options:
+    - pattern: "password.*|.*secret.*"
+      options: "-"
+      comment: "Sensitive field - excluded from JSON"
+    - pattern: ".*_count$|.*_total$"
+      options: "omitempty,string"
+      comment: "Numeric field serialized as string"
+  skip_fields:
+    - "internal_use_only"
+    - "debug_info"
+`
+
+	tmpFile, err := os.CreateTemp("", "enhanced_tags_test_*.yml")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	_, err = tmpFile.WriteString(yamlContent)
+	require.NoError(t, err)
+	_ = tmpFile.Close()
+
+	cfg, err := LoadConfig(tmpFile.Name())
+	require.NoError(t, err)
+
+	// Test additional tags
+	require.Len(t, cfg.JSONTags.AdditionalTags, 2)
+	assert.Contains(t, cfg.JSONTags.AdditionalTags, "yaml")
+	assert.Contains(t, cfg.JSONTags.AdditionalTags, "xml")
+
+	// Test custom options
+	require.Len(t, cfg.JSONTags.CustomOptions, 2)
+
+	firstOption := cfg.JSONTags.CustomOptions[0]
+	assert.Equal(t, "password.*|.*secret.*", firstOption.Pattern)
+	assert.Equal(t, "-", firstOption.Options)
+	assert.Equal(t, "Sensitive field - excluded from JSON", firstOption.Comment)
+
+	secondOption := cfg.JSONTags.CustomOptions[1]
+	assert.Equal(t, ".*_count$|.*_total$", secondOption.Pattern)
+	assert.Equal(t, "omitempty,string", secondOption.Options)
+	assert.Equal(t, "Numeric field serialized as string", secondOption.Comment)
+
+	// Test skip fields
+	require.Len(t, cfg.JSONTags.SkipFields, 2)
+	assert.Contains(t, cfg.JSONTags.SkipFields, "internal_use_only")
+	assert.Contains(t, cfg.JSONTags.SkipFields, "debug_info")
+}
+
+// TestTagOptionMatching tests the pattern matching for tag options
+func TestTagOptionMatching(t *testing.T) {
+	tests := []struct {
+		name      string
+		pattern   string
+		fieldName string
+		expected  bool
+	}{
+		{"password field matches", "password.*", "password", true},
+		{"password_hash matches", "password.*", "password_hash", true},
+		{"username does not match", "password.*", "username", false},
+		{"secret field matches", ".*secret.*", "api_secret_key", true},
+		{"user_secret matches", ".*secret.*", "user_secret", true},
+		{"regular field no match", ".*secret.*", "regular_field", false},
+		{"id field matches", ".*_id$", "user_id", true},
+		{"product_id matches", ".*_id$", "product_id", true},
+		{"identity no match", ".*_id$", "user_identity", false},
+		{"count field matches", ".*_count$", "view_count", true},
+		{"total field matches", ".*_total$", "grand_total", true},
+		{"counter no match", ".*_count$", "counter", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := TagOption{Pattern: tt.pattern}
+			assert.Equal(t, tt.expected, option.MatchesField(tt.fieldName))
+		})
+	}
+}
+
+// TestTagOptionInvalidPattern tests handling of invalid regex patterns
+func TestTagOptionInvalidPattern(t *testing.T) {
+	option := TagOption{Pattern: "[invalid regex"}
+	// Should not panic and should return false
+	assert.False(t, option.MatchesField("any_field"))
+}
+
+// TestFindTagOption tests finding tag options for field names
+func TestFindTagOption(t *testing.T) {
+	cfg := &Config{
+		JSONTags: JSONTagsConfig{
+			CustomOptions: []TagOption{
+				{Pattern: "password.*", Options: "-", Comment: "Password field"},
+				{Pattern: ".*_count$", Options: "omitempty,string", Comment: "Count field"},
+				{Pattern: ".*email.*", Options: "omitempty", Comment: "Email field"},
+			},
+		},
+	}
+
+	// Compile patterns
+	err := cfg.compilePatterns()
+	require.NoError(t, err)
+
+	// Test finding password option
+	option, found := cfg.FindTagOption("password_hash")
+	assert.True(t, found)
+	assert.Equal(t, "-", option.Options)
+	assert.Equal(t, "Password field", option.Comment)
+
+	// Test finding count option
+	option, found = cfg.FindTagOption("view_count")
+	assert.True(t, found)
+	assert.Equal(t, "omitempty,string", option.Options)
+	assert.Equal(t, "Count field", option.Comment)
+
+	// Test finding email option
+	option, found = cfg.FindTagOption("user_email")
+	assert.True(t, found)
+	assert.Equal(t, "omitempty", option.Options)
+	assert.Equal(t, "Email field", option.Comment)
+
+	// Test not finding option
+	_, found = cfg.FindTagOption("regular_field")
+	assert.False(t, found)
+}
+
+// TestShouldSkipField tests field skipping functionality
+func TestShouldSkipField(t *testing.T) {
+	cfg := &Config{
+		JSONTags: JSONTagsConfig{
+			SkipFields: []string{
+				"internal_use_only",
+				"debug_info",
+				"temp_data",
+			},
+		},
+	}
+
+	// Test fields that should be skipped
+	assert.True(t, cfg.ShouldSkipField("internal_use_only"))
+	assert.True(t, cfg.ShouldSkipField("debug_info"))
+	assert.True(t, cfg.ShouldSkipField("temp_data"))
+
+	// Test fields that should not be skipped
+	assert.False(t, cfg.ShouldSkipField("username"))
+	assert.False(t, cfg.ShouldSkipField("email"))
+	assert.False(t, cfg.ShouldSkipField("user_id"))
+}
+
+// TestComplexTagConfiguration tests a complex configuration with all tagging features
+func TestComplexTagConfiguration(t *testing.T) {
+	yamlContent := `
+package: "models"
+root_name: "ComplexResponse"
+types:
+  mappings:
+    - pattern: ".*_id$|^id$"
+      type: "int64"
+      comment: "Database ID"
+    - pattern: "created_at|updated_at|.*_time$"
+      type: "time.Time"
+      import: "time"
+      comment: "Timestamp"
+naming:
+  pascal_case_fields: true
+  field_mappings:
+    "user_id": "UserID"
+    "api_key": "APIKey"
+    "url": "URL"
+json_tags:
+  omitempty_for_pointers: true
+  omitempty_for_slices: true
+  additional_tags:
+    - "yaml"
+    - "xml"
+  custom_options:
+    - pattern: "password.*|.*secret.*"
+      options: "-"
+      comment: "Sensitive field - excluded from JSON"
+    - pattern: ".*_count$|.*_total$"
+      options: "omitempty,string"
+      comment: "Numeric field serialized as string"
+  skip_fields:
+    - "internal_use_only"
+    - "debug_info"
+`
+
+	tmpFile, err := os.CreateTemp("", "complex_config_test_*.yml")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	_, err = tmpFile.WriteString(yamlContent)
+	require.NoError(t, err)
+	_ = tmpFile.Close()
+
+	cfg, err := LoadConfig(tmpFile.Name())
+	require.NoError(t, err)
+
+	// Test all configuration sections are properly loaded
+	assert.Equal(t, "models", cfg.Package)
+	assert.Equal(t, "ComplexResponse", cfg.RootName)
+
+	// Test type mappings
+	require.Len(t, cfg.Types.Mappings, 2)
+	assert.Equal(t, ".*_id$|^id$", cfg.Types.Mappings[0].Pattern)
+	assert.Equal(t, "int64", cfg.Types.Mappings[0].Type)
+
+	// Test naming configuration
+	assert.True(t, cfg.Naming.PascalCaseFields)
+	assert.Equal(t, "UserID", cfg.Naming.FieldMappings["user_id"])
+	assert.Equal(t, "APIKey", cfg.Naming.FieldMappings["api_key"])
+
+	// Test tag configuration
+	assert.True(t, cfg.JSONTags.OmitemptyForPointers)
+	assert.True(t, cfg.JSONTags.OmitemptyForSlices)
+	assert.Contains(t, cfg.JSONTags.AdditionalTags, "yaml")
+	assert.Contains(t, cfg.JSONTags.AdditionalTags, "xml")
+	require.Len(t, cfg.JSONTags.CustomOptions, 2)
+	require.Len(t, cfg.JSONTags.SkipFields, 2)
+
+	// Test that patterns are properly compiled by attempting matches
+	_, found := cfg.FindTypeMapping("user_id")
+	assert.True(t, found)
+
+	_, found = cfg.FindTagOption("password_hash")
+	assert.True(t, found)
+
+	assert.True(t, cfg.ShouldSkipField("debug_info"))
+	assert.False(t, cfg.ShouldSkipField("regular_field"))
+}

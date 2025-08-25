@@ -4,17 +4,30 @@
     <img src="./images/icon.png" alt="GoTyper" width="200"/>
 </p>
 
-A command-line tool that converts JSON to Go structs with appropriate JSON tags.
+A powerful command-line tool that generates Go structs from JSON with comprehensive multi-format tag support (JSON, YAML, XML) and advanced customization options.
 
 ## Features
 
+### Core Functionality
 - Converts JSON from files or stdin to Go structs
 - Interactive mode for quick, ad-hoc conversions
-- Detects appropriate Go types including special types like UUIDs and timestamps
-- Handles nested objects and arrays
-- Generates proper JSON tags with omitempty where appropriate
+- Intelligent type detection including UUIDs and timestamps
+- Handles complex nested objects and arrays
 - Formats output according to Go standards
-- Provides clear error messages for invalid inputs
+
+### Multi-Format Tag Support
+- **JSON tags**: Standard Go JSON serialization tags
+- **YAML tags**: Generate YAML-compatible struct tags
+- **XML tags**: Generate XML serialization tags
+- **Simultaneous generation**: Create multiple tag formats at once
+
+### Advanced Customization
+- **Configuration files**: Use `.gotyper.yml` for project-specific settings
+- **Pattern-based field customization**: Apply custom tag options using regex patterns
+- **Field skipping**: Exclude sensitive or internal fields from struct generation
+- **Type mappings**: Map specific field patterns to custom Go types
+- **Naming conventions**: Customize field and struct naming rules
+- **Tag customization**: Control omitempty, field exclusion, and custom serialization options
 
 ## Installation
 
@@ -45,10 +58,80 @@ gotyper
   -o, --output=STRING    Path to output Go file. If not specified, writes to stdout.
   -p, --package=STRING   Package name for generated code. (default: main)
   -r, --root-name=STRING Name for the root struct. (default: RootType)
+  -c, --config=STRING    Path to configuration file. If not specified, searches for .gotyper.yml
   -f, --format           Format the output code according to Go standards. (default: true)
   -d, --debug            Enable debug logging.
   -v, --version          Show version information.
   -I, --interactive      Run in interactive mode, allowing direct JSON input with Ctrl+D to process.
+```
+
+## Configuration Files
+
+GoTyper supports YAML configuration files for advanced customization. The tool automatically searches for `.gotyper.yml`, `.gotyper.yaml`, `gotyper.yml`, or `gotyper.yaml` in the current directory and parent directories.
+
+### Basic Configuration
+
+Create a `.gotyper.yml` file in your project root:
+
+```yaml
+package: "models"
+root_name: "APIResponse"
+
+# Generate multiple tag formats
+json_tags:
+  omitempty_for_pointers: true
+  omitempty_for_slices: true
+  additional_tags:
+    - "yaml"
+    - "xml"
+```
+
+### Advanced Configuration
+
+```yaml
+package: "models"
+root_name: "APIResponse"
+
+# Type mappings for consistent field types
+types:
+  mappings:
+    - pattern: ".*_id$|^id$"
+      type: "int64"
+      comment: "Database ID"
+    - pattern: "created_at|updated_at|.*_time$"
+      type: "time.Time"
+      import: "time"
+      comment: "Timestamp"
+
+# Custom field naming
+naming:
+  pascal_case_fields: true
+  field_mappings:
+    "user_id": "UserID"
+    "api_key": "APIKey"
+    "url": "URL"
+
+# Enhanced tag generation
+json_tags:
+  omitempty_for_pointers: true
+  omitempty_for_slices: true
+  additional_tags:
+    - "yaml"
+    - "xml"
+  
+  # Pattern-based tag customization
+  custom_options:
+    - pattern: "password.*|.*secret.*"
+      options: "-"
+      comment: "Sensitive field - excluded from JSON"
+    - pattern: ".*_count$|.*_total$"
+      options: "omitempty,string"
+      comment: "Numeric field serialized as string"
+  
+  # Fields to skip entirely
+  skip_fields:
+    - "internal_use_only"
+    - "debug_info"
 ```
 
 ### Key Features Explained
@@ -127,8 +210,9 @@ For quick, ad-hoc conversions without creating temporary files:
 
 ## Examples
 
-### Input JSON
+### Basic JSON-to-Go Conversion
 
+**Input JSON:**
 ```json
 {
   "name": "John Doe",
@@ -146,8 +230,7 @@ For quick, ad-hoc conversions without creating temporary files:
 }
 ```
 
-### Output Go Code
-
+**Output Go Code (default):**
 ```go
 package main
 
@@ -170,6 +253,103 @@ type RootType struct {
 	Name      string    `json:"name"`
 	Scores    []int64   `json:"scores,omitempty"`
 	Tags      []string  `json:"tags,omitempty"`
+}
+```
+
+### Multi-Format Tags Example
+
+**Configuration (`.gotyper.yml`):**
+```yaml
+package: "models"
+root_name: "User"
+
+json_tags:
+  additional_tags:
+    - "yaml"
+    - "xml"
+  custom_options:
+    - pattern: ".*email.*"
+      options: "omitempty"
+      comment: "Email address"
+```
+
+**Enhanced Output:**
+```go
+package models
+
+import (
+	"time"
+)
+
+type Address struct {
+	City   string `json:"city" yaml:"city" xml:"city"`
+	Street string `json:"street" yaml:"street" xml:"street"`
+	Zip    string `json:"zip" yaml:"zip" xml:"zip"`
+}
+
+type User struct {
+	Address   *Address  `json:"address,omitempty" yaml:"address" xml:"address"`
+	Age       int64     `json:"age" yaml:"age" xml:"age"`
+	CreatedAt time.Time `json:"created_at" yaml:"created_at" xml:"created_at"`
+	Email     string    `json:"email,omitempty" yaml:"email" xml:"email"` // Email address
+	IsActive  bool      `json:"is_active" yaml:"is_active" xml:"is_active"`
+	Name      string    `json:"name" yaml:"name" xml:"name"`
+	Scores    []int64   `json:"scores,omitempty" yaml:"scores" xml:"scores"`
+	Tags      []string  `json:"tags,omitempty" yaml:"tags" xml:"tags"`
+}
+```
+
+### Advanced Pattern-Based Customization
+
+**Configuration:**
+```yaml
+package: "api"
+root_name: "Response"
+
+types:
+  mappings:
+    - pattern: ".*_id$"
+      type: "int64"
+      comment: "Database ID"
+
+naming:
+  field_mappings:
+    "user_id": "UserID"
+    "api_key": "APIKey"
+
+json_tags:
+  additional_tags: ["yaml"]
+  custom_options:
+    - pattern: ".*secret.*|.*password.*"
+      options: "-"
+      comment: "Sensitive data excluded from serialization"
+    - pattern: ".*_count$"
+      options: "omitempty,string"
+  skip_fields:
+    - "internal_debug_info"
+```
+
+**Input JSON:**
+```json
+{
+  "user_id": 123,
+  "api_key": "sk-1234567890",
+  "password_hash": "hashed_password",
+  "view_count": 42,
+  "internal_debug_info": "debug data"
+}
+```
+
+**Generated Go Code:**
+```go
+package api
+
+type Response struct {
+	APIKey       string `json:"api_key" yaml:"api_key"`
+	PasswordHash string `json:"password_hash,-" yaml:"password_hash"` // Sensitive data excluded from serialization
+	UserID       int64  `json:"user_id" yaml:"user_id"` // Database ID
+	ViewCount    int64  `json:"view_count,omitempty,string" yaml:"view_count"`
+	// Note: internal_debug_info field is completely excluded
 }
 ```
 
@@ -229,41 +409,174 @@ GoTyper provides clear error messages for common issues:
 
 When an error occurs, GoTyper will display a user-friendly message and exit with a non-zero status code.
 
+## Configuration Reference
+
+### Complete Configuration Options
+
+```yaml
+# Basic settings
+package: "models"                    # Go package name
+root_name: "APIResponse"            # Name for root struct
+
+# Code formatting
+formatting:
+  enabled: true                     # Enable gofmt formatting
+  use_gofumpt: false               # Use gofumpt instead of gofmt
+
+# Type inference and mapping
+types:
+  force_int64: false               # Force all integers to int64
+  optional_as_pointers: true       # Make nullable fields pointers
+  mappings:
+    - pattern: ".*_id$|^id$"       # Regex pattern for field names
+      type: "int64"                # Target Go type
+      import: ""                   # Additional import if needed
+      comment: "Database ID"       # Comment for generated field
+
+# Field naming conventions
+naming:
+  pascal_case_fields: true         # Convert snake_case to PascalCase
+  field_mappings:                  # Custom field name mappings
+    "user_id": "UserID"
+    "api_key": "APIKey"
+
+# JSON tag generation
+json_tags:
+  omitempty_for_pointers: true     # Add omitempty to pointer fields
+  omitempty_for_slices: true       # Add omitempty to slice fields
+  additional_tags:                 # Additional tag formats to generate
+    - "yaml"
+    - "xml"
+  custom_options:                  # Pattern-based tag customization
+    - pattern: "password.*"        # Field pattern
+      options: "-"                 # Tag options (-, omitempty, string, etc.)
+      comment: "Excluded field"    # Comment for field
+  skip_fields:                     # Fields to exclude entirely
+    - "internal_use_only"
+    - "debug_info"
+
+# Validation tags (if implemented)
+validation:
+  enabled: false                   # Enable validation tag generation
+  rules:
+    - pattern: ".*email.*"
+      tag: "validate:\"required,email\""
+
+# Output options
+output:
+  file_header: ""                  # Custom file header
+  generate_constructors: false    # Generate constructor functions
+  generate_string_methods: false  # Generate String() methods
+
+# Array handling
+arrays:
+  merge_different_objects: true   # Merge objects with different fields
+  singularize_names: true         # Singularize array element struct names
+
+# Development options
+dev:
+  debug: false                    # Enable debug output
+  verbose: false                  # Enable verbose logging
+```
+
 ## Advanced Usage
 
-### Command Pipelines
+### Multi-Format Struct Generation
 
-GoTyper works well in command pipelines, making it easy to integrate with other tools:
-
-```bash
-# Fetch JSON from an API and convert it to Go structs
-curl -s https://api.example.com/data | gotyper -p models -r ResponseData
-
-# Extract a nested JSON object and convert it
-jq '.data.items' input.json | gotyper -r Item
-```
-
-### Complex Nested Structures
-
-GoTyper automatically handles complex nested JSON structures, creating appropriate nested struct types:
+Generate structs that work with multiple serialization formats:
 
 ```bash
-# Process a deeply nested JSON file
-gotyper -i complex.json -o models.go -p models -r APIResponse
+# Create a config file for multi-format output
+cat > .gotyper.yml << EOF
+json_tags:
+  additional_tags:
+    - "yaml"
+    - "xml"
+    - "toml"
+EOF
+
+# Generate structs with multiple tag formats
+curl -s https://api.example.com/data | gotyper -p models
 ```
 
-This will generate a hierarchy of structs with proper relationships and JSON tags.
+### API-Specific Configurations
+
+Create project-specific configurations for different APIs:
+
+```bash
+# GitHub API configuration
+cat > github.gotyper.yml << EOF
+package: "github"
+root_name: "Repository"
+types:
+  mappings:
+    - pattern: ".*_at$"
+      type: "time.Time"
+      import: "time"
+naming:
+  field_mappings:
+    "html_url": "HTMLURL"
+    "ssh_url": "SSHURL"
+json_tags:
+  custom_options:
+    - pattern: ".*token.*"
+      options: "-"
+      comment: "Sensitive - excluded from JSON"
+EOF
+
+# Use specific config
+gotyper -i github_response.json -c github.gotyper.yml
+```
+
+### Security-Focused Configuration
+
+Automatically handle sensitive fields:
+
+```yaml
+# security-focused.gotyper.yml
+json_tags:
+  custom_options:
+    # Exclude all password/secret/token fields
+    - pattern: ".*password.*|.*secret.*|.*token.*|.*key$"
+      options: "-"
+      comment: "Sensitive data - excluded from JSON serialization"
+    
+    # Mark PII fields for careful handling
+    - pattern: ".*email.*|.*phone.*|.*ssn.*"
+      options: "omitempty"
+      comment: "PII - handle with care"
+  
+  skip_fields:
+    - "internal_id"
+    - "debug_trace"
+    - "raw_sql"
+```
 
 ### Development Workflow Integration
 
-For rapid prototyping during development:
+#### 1. API Exploration Workflow
+```bash
+# Quick API exploration
+curl -s https://api.example.com/users/123 | gotyper -I
+```
 
-1. Copy JSON from API documentation or response examples
-2. Run `gotyper` with no arguments to enter interactive mode
-3. Paste the JSON and press Ctrl+D
-4. Copy the generated structs into your codebase
+#### 2. Project Integration
+```bash
+# Add to your project
+gotyper -i api_response.json -o internal/models/user.go -p models -r User
 
-This workflow is particularly useful when exploring new APIs or designing data models.
+# With project-specific config
+gotyper -i api_response.json -o models/api.go -c .gotyper.yml
+```
+
+#### 3. CI/CD Integration
+```bash
+# Validate generated code compiles
+gotyper -i schema.json -o /tmp/test.go && go build /tmp/test.go
+
+# Generate and format in one step
+gotyper -i data.json | gofmt > models/generated.go
+```
 
 ## License
 

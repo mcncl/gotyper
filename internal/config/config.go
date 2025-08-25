@@ -56,9 +56,21 @@ type NamingConfig struct {
 
 // JSONTagsConfig controls JSON tag generation
 type JSONTagsConfig struct {
-	OmitemptyForPointers bool     `yaml:"omitempty_for_pointers"`
-	OmitemptyForSlices   bool     `yaml:"omitempty_for_slices"`
-	AdditionalTags       []string `yaml:"additional_tags"`
+	OmitemptyForPointers bool        `yaml:"omitempty_for_pointers"`
+	OmitemptyForSlices   bool        `yaml:"omitempty_for_slices"`
+	AdditionalTags       []string    `yaml:"additional_tags"`
+	CustomOptions        []TagOption `yaml:"custom_options"`
+	SkipFields           []string    `yaml:"skip_fields"`
+}
+
+// TagOption defines custom tag options for specific fields
+type TagOption struct {
+	Pattern string `yaml:"pattern"`
+	Options string `yaml:"options"` // e.g., "omitempty", "-", "string", "omitempty,string"
+	Comment string `yaml:"comment,omitempty"`
+
+	// compiled regex (not serialized)
+	regex *regexp.Regexp
 }
 
 // ValidationConfig controls validation tag generation
@@ -214,6 +226,16 @@ func (c *Config) compilePatterns() error {
 		rule.regex = regex
 	}
 
+	// Compile tag option patterns
+	for i := range c.JSONTags.CustomOptions {
+		option := &c.JSONTags.CustomOptions[i]
+		regex, err := regexp.Compile(option.Pattern)
+		if err != nil {
+			return fmt.Errorf("invalid tag option pattern '%s': %w", option.Pattern, err)
+		}
+		option.regex = regex
+	}
+
 	return nil
 }
 
@@ -241,6 +263,19 @@ func (vr *ValidationRule) MatchesField(fieldName string) bool {
 		vr.regex = regex
 	}
 	return vr.regex.MatchString(fieldName)
+}
+
+// MatchesField checks if this tag option matches the given field name
+func (to *TagOption) MatchesField(fieldName string) bool {
+	if to.regex == nil {
+		// Try to compile if not already compiled (fallback)
+		regex, err := regexp.Compile(to.Pattern)
+		if err != nil {
+			return false
+		}
+		to.regex = regex
+	}
+	return to.regex.MatchString(fieldName)
 }
 
 // GetFieldName returns the Go field name for a JSON key, applying naming rules
@@ -281,6 +316,26 @@ func (c *Config) FindValidationRule(fieldName string) (ValidationRule, bool) {
 		}
 	}
 	return ValidationRule{}, false
+}
+
+// FindTagOption finds the first tag option that matches the field name
+func (c *Config) FindTagOption(fieldName string) (TagOption, bool) {
+	for _, option := range c.JSONTags.CustomOptions {
+		if option.MatchesField(fieldName) {
+			return option, true
+		}
+	}
+	return TagOption{}, false
+}
+
+// ShouldSkipField checks if a field should be skipped (json:"-")
+func (c *Config) ShouldSkipField(fieldName string) bool {
+	for _, skip := range c.JSONTags.SkipFields {
+		if skip == fieldName {
+			return true
+		}
+	}
+	return false
 }
 
 // MergeConfigs merges CLI overrides into a base config

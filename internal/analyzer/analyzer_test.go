@@ -1,9 +1,11 @@
 package analyzer
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/mcncl/gotyper/internal/config"
 	"github.com/mcncl/gotyper/internal/models"
 	"github.com/mcncl/gotyper/internal/parser"
 	"github.com/stretchr/testify/assert"
@@ -24,10 +26,10 @@ func TestAnalyze_SimpleObject(t *testing.T) {
 	assert.Equal(t, "Person", personStruct.Name)
 	assert.True(t, personStruct.IsRoot)
 	expectedFields := []models.FieldInfo{
-		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int64", IsPointer: false}, JSONTag: "`json:\"age\"`"},
-		{JSONKey: "is_student", GoName: "IsStudent", GoType: models.TypeInfo{Kind: models.Bool, Name: "bool", IsPointer: false}, JSONTag: "`json:\"is_student\"`"},
-		{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false}, JSONTag: "`json:\"name\"`"},
-		{JSONKey: "score", GoName: "Score", GoType: models.TypeInfo{Kind: models.Float, Name: "float64", IsPointer: false}, JSONTag: "`json:\"score\"`"},
+		{JSONKey: "age", GoName: "Age", GoType: models.TypeInfo{Kind: models.Int, Name: "int64", IsPointer: false}, JSONTag: "`json:\"age\"`", Tags: map[string]string{"json": "age"}, Comment: ""},
+		{JSONKey: "is_student", GoName: "IsStudent", GoType: models.TypeInfo{Kind: models.Bool, Name: "bool", IsPointer: false}, JSONTag: "`json:\"is_student\"`", Tags: map[string]string{"json": "is_student"}, Comment: ""},
+		{JSONKey: "name", GoName: "Name", GoType: models.TypeInfo{Kind: models.String, Name: "string", IsPointer: false}, JSONTag: "`json:\"name\"`", Tags: map[string]string{"json": "name"}, Comment: ""},
+		{JSONKey: "score", GoName: "Score", GoType: models.TypeInfo{Kind: models.Float, Name: "float64", IsPointer: false}, JSONTag: "`json:\"score\"`", Tags: map[string]string{"json": "score"}, Comment: ""},
 	}
 	assert.ElementsMatch(t, expectedFields, personStruct.Fields, "Fields do not match expected (order-independent)")
 
@@ -429,6 +431,286 @@ func TestAnalyze_EmptyObjectAndArray(t *testing.T) {
 	// Validate EmptyObjStruct
 	assert.Equal(t, "TestEmptyEmptyObj", emptyObjStruct.Name)
 	assert.Empty(t, emptyObjStruct.Fields, "Struct for empty object should have no fields")
+}
+
+// TestEnhancedTagGeneration tests the new multi-format tag generation system
+func TestEnhancedTagGeneration(t *testing.T) {
+	tests := []struct {
+		name             string
+		configYAML       string
+		jsonInput        string
+		expectedTags     map[string]map[string]string // field -> tag type -> tag value
+		expectedComments map[string]string            // field -> comment
+	}{
+		{
+			name: "basic multi-format tags",
+			configYAML: `
+package: "models"
+root_name: "TestStruct"
+json_tags:
+  additional_tags:
+    - "yaml"
+    - "xml"
+`,
+			jsonInput: `{"user_name": "John", "age": 30}`,
+			expectedTags: map[string]map[string]string{
+				"user_name": {
+					"json": "user_name",
+					"yaml": "user_name",
+					"xml":  "user_name",
+				},
+				"age": {
+					"json": "age",
+					"yaml": "age",
+					"xml":  "age",
+				},
+			},
+		},
+		{
+			name: "custom tag options for patterns",
+			configYAML: `
+package: "models"
+root_name: "TestStruct"
+json_tags:
+  additional_tags:
+    - "yaml"
+  custom_options:
+    - pattern: "password.*|.*secret.*"
+      options: "-"
+      comment: "Sensitive field - excluded from JSON"
+    - pattern: ".*_count$"
+      options: "omitempty,string"
+      comment: "Count field serialized as string"
+`,
+			jsonInput: `{"password_hash": "secret", "view_count": 42, "username": "john"}`,
+			expectedTags: map[string]map[string]string{
+				"password_hash": {
+					"json": "password_hash,-",
+					"yaml": "password_hash",
+				},
+				"view_count": {
+					"json": "view_count,omitempty,string",
+					"yaml": "view_count",
+				},
+				"username": {
+					"json": "username",
+					"yaml": "username",
+				},
+			},
+			expectedComments: map[string]string{
+				"password_hash": "Sensitive field - excluded from JSON",
+				"view_count":    "Count field serialized as string",
+			},
+		},
+		{
+			name: "skip fields configuration",
+			configYAML: `
+package: "models"
+root_name: "TestStruct"
+json_tags:
+  skip_fields:
+    - "internal_use_only"
+    - "debug_info"
+`,
+			jsonInput: `{"username": "john", "internal_use_only": "data", "debug_info": "test"}`,
+			expectedTags: map[string]map[string]string{
+				"username": {
+					"json": "username",
+				},
+				// internal_use_only and debug_info should be skipped entirely
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temp config file
+			tmpFile, err := os.CreateTemp("", "test_config_*.yml")
+			require.NoError(t, err)
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+			_, err = tmpFile.WriteString(tt.configYAML)
+			require.NoError(t, err)
+			_ = tmpFile.Close()
+
+			// Load config
+			cfg, err := config.LoadConfig(tmpFile.Name())
+			require.NoError(t, err)
+
+			// Parse JSON
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err)
+
+			// Create analyzer with config
+			analyzer := NewAnalyzerWithConfig(cfg)
+			result, err := analyzer.Analyze(ir, cfg.RootName)
+			require.NoError(t, err)
+
+			require.Len(t, result.Structs, 1)
+			struct_def := result.Structs[0]
+
+			// Check expected tags
+			for fieldName, expectedTagMap := range tt.expectedTags {
+				found := false
+				for _, field := range struct_def.Fields {
+					if field.JSONKey == fieldName {
+						found = true
+						// Check each tag type
+						for tagType, expectedValue := range expectedTagMap {
+							actualValue, exists := field.Tags[tagType]
+							assert.True(t, exists, "Expected %s tag for field %s", tagType, fieldName)
+							assert.Equal(t, expectedValue, actualValue, "Tag %s for field %s", tagType, fieldName)
+						}
+						break
+					}
+				}
+				assert.True(t, found, "Expected field %s to be present", fieldName)
+			}
+
+			// Check expected comments
+			for fieldName, expectedComment := range tt.expectedComments {
+				found := false
+				for _, field := range struct_def.Fields {
+					if field.JSONKey == fieldName {
+						found = true
+						assert.Equal(t, expectedComment, field.Comment, "Comment for field %s", fieldName)
+						break
+					}
+				}
+				assert.True(t, found, "Expected field %s to be present for comment check", fieldName)
+			}
+
+			// Check that skipped fields are not present
+			for _, field := range struct_def.Fields {
+				if _, shouldBePresent := tt.expectedTags[field.JSONKey]; !shouldBePresent {
+					// This field should have been skipped
+					t.Errorf("Field %s should have been skipped but was present", field.JSONKey)
+				}
+			}
+		})
+	}
+}
+
+// TestTagOptionPatternMatching tests the pattern matching for tag options
+func TestTagOptionPatternMatching(t *testing.T) {
+	tests := []struct {
+		name        string
+		pattern     string
+		fieldName   string
+		shouldMatch bool
+	}{
+		{"password field exact", "password.*", "password", true},
+		{"password field with suffix", "password.*", "password_hash", true},
+		{"secret field pattern", ".*secret.*", "user_secret_key", true},
+		{"id field pattern", ".*_id$", "user_id", true},
+		{"id field no match", ".*_id$", "user_identity", false},
+		{"count field pattern", ".*_count$", "view_count", true},
+		{"count field no match", ".*_count$", "counter", false},
+		{"email pattern", ".*email.*", "user_email_address", true},
+		{"time pattern", ".*_time$|.*_at$", "created_at", true},
+		{"time pattern alt", ".*_time$|.*_at$", "update_time", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				JSONTags: config.JSONTagsConfig{
+					CustomOptions: []config.TagOption{
+						{
+							Pattern: tt.pattern,
+							Options: "test_option",
+						},
+					},
+				},
+			}
+
+			// Test the pattern matching using FindTagOption which handles compilation internally
+			option, found := cfg.FindTagOption(tt.fieldName)
+			if tt.shouldMatch {
+				assert.True(t, found, "Expected pattern to match field %s", tt.fieldName)
+				assert.Equal(t, "test_option", option.Options)
+			} else {
+				assert.False(t, found, "Expected pattern to not match field %s", tt.fieldName)
+			}
+		})
+	}
+}
+
+// TestOmitemptyGeneration tests the omitempty logic for different field types
+func TestOmitemptyGeneration(t *testing.T) {
+	tests := []struct {
+		name              string
+		jsonInput         string
+		configYAML        string
+		expectedOmitempty bool
+		fieldName         string
+	}{
+		{
+			name:              "pointer field gets omitempty",
+			jsonInput:         `{"optional_field": null}`,
+			configYAML:        `json_tags:\n  omitempty_for_pointers: true`,
+			expectedOmitempty: true,
+			fieldName:         "optional_field",
+		},
+		{
+			name:              "slice field gets omitempty",
+			jsonInput:         `{"items": []}`,
+			configYAML:        `json_tags:\n  omitempty_for_slices: true`,
+			expectedOmitempty: true,
+			fieldName:         "items",
+		},
+		{
+			name:              "regular string field no omitempty",
+			jsonInput:         `{"name": "John"}`,
+			configYAML:        ``,
+			expectedOmitempty: false,
+			fieldName:         "name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create config
+			configContent := "package: models\nroot_name: TestStruct\n" + tt.configYAML
+			tmpFile, err := os.CreateTemp("", "omitempty_test_*.yml")
+			require.NoError(t, err)
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+			_, err = tmpFile.WriteString(configContent)
+			require.NoError(t, err)
+			_ = tmpFile.Close()
+
+			cfg, err := config.LoadConfig(tmpFile.Name())
+			require.NoError(t, err)
+
+			// Parse and analyze
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err)
+
+			analyzer := NewAnalyzerWithConfig(cfg)
+			result, err := analyzer.Analyze(ir, cfg.RootName)
+			require.NoError(t, err)
+
+			// Find the field and check its JSON tag
+			found := false
+			for _, structDef := range result.Structs {
+				for _, field := range structDef.Fields {
+					if field.JSONKey == tt.fieldName {
+						found = true
+						jsonTag, exists := field.Tags["json"]
+						assert.True(t, exists, "Expected JSON tag for field %s", tt.fieldName)
+						if tt.expectedOmitempty {
+							assert.Contains(t, jsonTag, "omitempty", "Expected omitempty in JSON tag for field %s", tt.fieldName)
+						} else {
+							assert.NotContains(t, jsonTag, "omitempty", "Did not expect omitempty in JSON tag for field %s", tt.fieldName)
+						}
+						break
+					}
+				}
+			}
+			assert.True(t, found, "Expected to find field %s", tt.fieldName)
+		})
+	}
 }
 
 func TestJsonKeyToPascalCase(t *testing.T) {

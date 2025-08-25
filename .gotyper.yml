@@ -1,0 +1,50 @@
+# Enhanced GoTyper Configuration with Advanced Tagging
+package: "models"
+root_name: "ApiResponse"
+
+# Type mappings for common patterns
+types:
+  mappings:
+    # All ID fields become int64
+    - pattern: ".*_id$|^id$"
+      type: "int64"
+      comment: "Database ID"
+    
+    # Timestamp fields become time.Time
+    - pattern: "created_at|updated_at|.*_time$"
+      type: "time.Time"
+      import: "time"
+      comment: "Timestamp"
+
+# Custom field name mappings for better Go conventions
+naming:
+  pascal_case_fields: true
+  field_mappings:
+    "user_id": "UserID"
+    "api_key": "APIKey"
+    "url": "URL"
+
+# Enhanced JSON tags with multiple format support
+json_tags:
+  omitempty_for_pointers: true
+  omitempty_for_slices: true
+  
+  # Generate YAML and XML tags alongside JSON
+  additional_tags:
+    - "yaml"
+    - "xml"
+  
+  # Custom tag options for specific fields
+  custom_options:
+    - pattern: "password.*|.*secret.*"
+      options: "-"
+      comment: "Sensitive field - excluded from JSON"
+    
+    - pattern: ".*_count$|.*_total$"
+      options: "omitempty,string"
+      comment: "Numeric field serialized as string"
+  
+  # Fields to completely skip
+  skip_fields:
+    - "internal_use_only"
+    - "debug_info"
