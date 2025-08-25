@@ -15,15 +15,15 @@ func TestRun_SimpleJSON(t *testing.T) {
 
 	// Test data
 	jsonData := `{"name": "John", "age": 30, "active": true}`
-	
+
 	// Create temp file
 	tmpFile, err := os.CreateTemp("", "test_input_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
 	_, err = tmpFile.WriteString(jsonData)
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Set CLI options
 	CLI.Input = tmpFile.Name()
@@ -44,21 +44,21 @@ func TestRun_WithOutputFile(t *testing.T) {
 
 	// Test data
 	jsonData := `{"id": 1, "email": "test@example.com"}`
-	
+
 	// Create temp input file
 	tmpInput, err := os.CreateTemp("", "test_input_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpInput.Name())
-	
+	defer func() { _ = os.Remove(tmpInput.Name()) }()
+
 	_, err = tmpInput.WriteString(jsonData)
 	require.NoError(t, err)
-	tmpInput.Close()
+	_ = tmpInput.Close()
 
 	// Create temp output file
 	tmpOutput, err := os.CreateTemp("", "test_output_*.go")
 	require.NoError(t, err)
-	defer os.Remove(tmpOutput.Name())
-	tmpOutput.Close()
+	defer func() { _ = os.Remove(tmpOutput.Name()) }()
+	_ = tmpOutput.Close()
 
 	// Set CLI options
 	CLI.Input = tmpInput.Name()
@@ -75,7 +75,7 @@ func TestRun_WithOutputFile(t *testing.T) {
 	// Verify output file was created and contains expected content
 	outputContent, err := os.ReadFile(tmpOutput.Name())
 	require.NoError(t, err)
-	
+
 	outputStr := string(outputContent)
 	assert.Contains(t, outputStr, "package test")
 	assert.Contains(t, outputStr, "type User struct")
@@ -90,15 +90,15 @@ func TestParseInput_FromFile(t *testing.T) {
 
 	// Test data
 	jsonData := `{"user": {"name": "Alice", "id": 42}}`
-	
+
 	// Create temp file
 	tmpFile, err := os.CreateTemp("", "test_parse_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
 	_, err = tmpFile.WriteString(jsonData)
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Set CLI to use the file
 	CLI.Input = tmpFile.Name()
@@ -114,7 +114,7 @@ func TestParseInput_FromStdin(t *testing.T) {
 	// Save original CLI state and stdin
 	originalCLI := CLI
 	originalStdin := os.Stdin
-	defer func() { 
+	defer func() {
 		CLI = originalCLI
 		os.Stdin = originalStdin
 	}()
@@ -126,16 +126,16 @@ func TestParseInput_FromStdin(t *testing.T) {
 	jsonData := `[{"item": "apple"}, {"item": "banana"}]`
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
-	
+
 	// Write test data to pipe
 	go func() {
-		defer w.Close()
+		defer func() { _ = w.Close() }()
 		_, _ = w.WriteString(jsonData)
 	}()
-	
+
 	// Replace stdin
 	os.Stdin = r
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	// Test parsing
 	ir, err := parseInput()
@@ -152,8 +152,8 @@ func TestParseInput_EmptyFile(t *testing.T) {
 	// Create empty temp file
 	tmpFile, err := os.CreateTemp("", "test_empty_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
 
 	// Set CLI to use the empty file
 	CLI.Input = tmpFile.Name()
@@ -172,11 +172,11 @@ func TestParseInput_InvalidJSON(t *testing.T) {
 	// Create temp file with invalid JSON
 	tmpFile, err := os.CreateTemp("", "test_invalid_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
 	_, err = tmpFile.WriteString(`{"invalid": json}`)
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Set CLI to use the file
 	CLI.Input = tmpFile.Name()
@@ -207,8 +207,8 @@ func TestWriteOutput_ToFile(t *testing.T) {
 	// Create temp output file
 	tmpFile, err := os.CreateTemp("", "test_write_*.go")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
 
 	// Set CLI to use output file
 	CLI.Output = tmpFile.Name()
@@ -236,7 +236,7 @@ func TestWriteOutput_ToStdout(t *testing.T) {
 	// so we'll just verify it doesn't error
 	testCode := "package test\n\ntype Sample struct {}"
 	err := writeOutput(testCode)
-	
+
 	// The function should complete without error
 	assert.NoError(t, err)
 }
@@ -254,7 +254,7 @@ func TestWriteOutput_FileError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Note: TestReadInteractiveInput is challenging to test reliably due to 
+// Note: TestReadInteractiveInput is challenging to test reliably due to
 // stdin/EOF handling complexities, so we focus on testing other components
 func TestReadInteractiveInput_Concept(t *testing.T) {
 	// This test documents the interactive input function exists and is testable
@@ -286,17 +286,17 @@ func TestFullPipeline_FileToFile(t *testing.T) {
 	// Create temp input file
 	tmpInput, err := os.CreateTemp("", "integration_input_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpInput.Name())
-	
+	defer func() { _ = os.Remove(tmpInput.Name()) }()
+
 	_, err = tmpInput.WriteString(jsonData)
 	require.NoError(t, err)
-	tmpInput.Close()
+	_ = tmpInput.Close()
 
 	// Create temp output file
 	tmpOutput, err := os.CreateTemp("", "integration_output_*.go")
 	require.NoError(t, err)
-	defer os.Remove(tmpOutput.Name())
-	tmpOutput.Close()
+	defer func() { _ = os.Remove(tmpOutput.Name()) }()
+	_ = tmpOutput.Close()
 
 	// Configure CLI
 	CLI.Input = tmpInput.Name()
@@ -332,14 +332,14 @@ func TestRun_WithFormatting(t *testing.T) {
 
 	// Simple JSON that should format cleanly
 	jsonData := `{"a":1,"b":2}`
-	
+
 	tmpFile, err := os.CreateTemp("", "format_test_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
 	_, err = tmpFile.WriteString(jsonData)
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Test with formatting enabled (default)
 	CLI.Input = tmpFile.Name()
@@ -357,14 +357,14 @@ func TestRun_WithoutFormatting(t *testing.T) {
 	defer func() { CLI = originalCLI }()
 
 	jsonData := `{"name": "test"}`
-	
+
 	tmpFile, err := os.CreateTemp("", "no_format_test_*.json")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
 	_, err = tmpFile.WriteString(jsonData)
 	require.NoError(t, err)
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Test with formatting disabled
 	CLI.Input = tmpFile.Name()

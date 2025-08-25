@@ -256,7 +256,7 @@ func TestAnalyze_EnhancedTimeFormats(t *testing.T) {
 			require.Len(t, result.Structs, 1, "Expected exactly one struct for test: %s", tt.description)
 			structDef := result.Structs[0]
 			require.Len(t, structDef.Fields, 1, "Expected exactly one field for test: %s", tt.description)
-			
+
 			field := structDef.Fields[0]
 			if tt.expectTime {
 				assert.Equal(t, models.Time, field.GoType.Kind, "Expected time type for test: %s", tt.description)
@@ -354,9 +354,9 @@ func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
 			require.Len(t, result.Structs, 1, "Expected exactly one struct for test: %s", tt.description)
 			structDef := result.Structs[0]
 			require.Len(t, structDef.Fields, 1, "Expected exactly one field for test: %s", tt.description)
-			
+
 			field := structDef.Fields[0]
-			assert.Equal(t, tt.expectedType, field.GoType.Name, 
+			assert.Equal(t, tt.expectedType, field.GoType.Name,
 				"Expected %s type for test: %s, got %s", tt.expectedType, tt.description, field.GoType.Name)
 		})
 	}
@@ -509,7 +509,7 @@ func TestAnalyze_ArrayOfMixedObjects(t *testing.T) {
 
 	// The merged user struct should contain all fields from all objects
 	assert.Equal(t, "User", userStruct.Name)
-	assert.False(t, userStruct.IsRoot) // Arrays themselves are not considered root structs
+	assert.False(t, userStruct.IsRoot)   // Arrays themselves are not considered root structs
 	require.Len(t, userStruct.Fields, 4) // id, name, email, active
 
 	// All fields should be present - analyze merged objects to see which are optional
@@ -526,7 +526,7 @@ func TestAnalyze_ArrayOfMixedObjects(t *testing.T) {
 
 	// Check that optional fields are handled properly (exact behavior may vary)
 	assert.Contains(t, fieldMap, "name")
-	assert.Contains(t, fieldMap, "email") 
+	assert.Contains(t, fieldMap, "email")
 	assert.Contains(t, fieldMap, "active")
 }
 
@@ -597,7 +597,7 @@ func TestAnalyze_ArrayOfComplexObjects(t *testing.T) {
 
 	// Should create struct definitions for the nested objects
 	require.Greater(t, len(result.Structs), 1, "Should create multiple struct definitions for nested objects")
-	
+
 	// Find the root element struct
 	var userWrapperStruct models.StructDef
 	for _, s := range result.Structs {
@@ -606,7 +606,7 @@ func TestAnalyze_ArrayOfComplexObjects(t *testing.T) {
 			break
 		}
 	}
-	
+
 	assert.Equal(t, "UserWrapper", userWrapperStruct.Name)
 	require.Len(t, userWrapperStruct.Fields, 1)
 	assert.Equal(t, "user", userWrapperStruct.Fields[0].JSONKey)
@@ -664,13 +664,13 @@ func TestAreTypeInfosEqual(t *testing.T) {
 		{
 			name: "identical slices",
 			t1: &models.TypeInfo{
-				Kind: models.Slice,
-				Name: "[]string",
+				Kind:             models.Slice,
+				Name:             "[]string",
 				SliceElementType: &models.TypeInfo{Kind: models.String, Name: "string"},
 			},
 			t2: &models.TypeInfo{
-				Kind: models.Slice,
-				Name: "[]string",
+				Kind:             models.Slice,
+				Name:             "[]string",
 				SliceElementType: &models.TypeInfo{Kind: models.String, Name: "string"},
 			},
 			expected: true,
@@ -678,13 +678,13 @@ func TestAreTypeInfosEqual(t *testing.T) {
 		{
 			name: "different slice elements",
 			t1: &models.TypeInfo{
-				Kind: models.Slice,
-				Name: "[]string",
+				Kind:             models.Slice,
+				Name:             "[]string",
 				SliceElementType: &models.TypeInfo{Kind: models.String, Name: "string"},
 			},
 			t2: &models.TypeInfo{
-				Kind: models.Slice,
-				Name: "[]int",
+				Kind:             models.Slice,
+				Name:             "[]int",
 				SliceElementType: &models.TypeInfo{Kind: models.Int, Name: "int64"},
 			},
 			expected: false,

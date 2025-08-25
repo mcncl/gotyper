@@ -7,7 +7,8 @@ import (
 	"os"
 	"strings"
 
-	stderrors "errors"                         // Standard errors package
+	stderrors "errors" // Standard errors package
+
 	"github.com/mcncl/gotyper/internal/errors" // Custom errors package
 	"github.com/mcncl/gotyper/internal/models"
 )

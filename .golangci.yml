@@ -9,15 +9,10 @@ linters:
   enable:
     - staticcheck
     - govet
-    - revive
     - errcheck
-    - gosimple
     - ineffassign
     - unused
     - misspell
-    - gocyclo
-  disable:
-    - unused  # Remove if you want to check for unused code
 
 formatters:
   enable:

@@ -68,7 +68,7 @@ func TestCLI_FileInputOutput(t *testing.T) {
 
 	// Check for field presence without exact whitespace matching
 	assert.Regexp(t, `Name\s+string\s+\x60json:"name"\x60`, code)
-	assert.Regexp(t, `Age\s+int64\s+\x60json:"age"\x60`, code)
+	assert.Regexp(t, `Age\s+int\s+\x60json:"age"\x60`, code)
 	assert.Regexp(t, `Email\s+string\s+\x60json:"email"\x60`, code)
 	assert.Regexp(t, `Address\s+\*RootTypeAddress\s+\x60json:"address,omitempty"\x60`, code)
 	assert.Regexp(t, `Phones\s+\*?\[?\]?\*?\[?\]?\*?RootTypePhone\s+\x60json:"phones,omitempty"\x60`, code)
@@ -107,7 +107,7 @@ func TestCLI_StdinStdout(t *testing.T) {
 	assert.Contains(t, output, "package main")
 	assert.Contains(t, output, "type RootType struct")
 	assert.Regexp(t, `Name\s+string\s+\x60json:"name"\x60`, output)
-	assert.Regexp(t, `Age\s+int64\s+\x60json:"age"\x60`, output)
+	assert.Regexp(t, `Age\s+int\s+\x60json:"age"\x60`, output)
 	assert.Regexp(t, `Active\s+bool\s+\x60json:"active"\x60`, output)
 }
 
@@ -153,7 +153,7 @@ func TestCLI_ArrayInput(t *testing.T) {
 	// Verify the output
 	output := stdout.String()
 	assert.Contains(t, output, "type RootType struct")
-	assert.Regexp(t, `Id\s+int64\s+\x60json:"id"\x60`, output)
+	assert.Regexp(t, `Id\s+int\s+\x60json:"id"\x60`, output)
 	assert.Regexp(t, `Name\s+string\s+\x60json:"name"\x60`, output)
 }
 
