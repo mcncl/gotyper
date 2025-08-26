@@ -3,9 +3,6 @@ contact_links:
   - name: 📚 Documentation
     url: https://github.com/mcncl/gotyper/blob/main/README.md
     about: Check the README for usage examples and configuration options
-  - name: 💬 Discussions
-    url: https://github.com/mcncl/gotyper/discussions
-    about: Ask questions and discuss GoTyper with the community (if you enable discussions)
   - name: 🐛 Security Issues
     url: https://github.com/mcncl/gotyper/security/advisories/new
     about: Report security vulnerabilities privately
