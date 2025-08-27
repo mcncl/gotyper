@@ -5,7 +5,7 @@ go 1.25
 require (
 	github.com/alecthomas/kong v1.12.1
 	github.com/iancoleman/strcase v0.3.0
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
