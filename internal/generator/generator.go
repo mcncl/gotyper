@@ -65,6 +65,12 @@ func (g *Generator) GenerateStructs(result models.AnalysisResult, packageName st
 		buf.WriteString(")\n")
 	}
 
+	// Add a note if ambiguous dates were detected using the default US format
+	if result.UsedDefaultDateFormat {
+		buf.WriteString("\n// Note: Ambiguous date fields detected using US format (MM/DD/YYYY).\n")
+		buf.WriteString("// To use European format (DD/MM/YYYY), set date_format: \"eu\" in .gotyper.yml\n")
+	}
+
 	// Sort structs to ensure root structs come first
 	sortedStructs := sortStructs(result.Structs)
 

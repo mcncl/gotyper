@@ -246,3 +246,64 @@ func TestGenerateStructs_EmptyResult(t *testing.T) {
 
 	assert.Equal(t, expectedCode, result)
 }
+
+func TestGenerateStructs_DateFormatComment(t *testing.T) {
+	// Test that the date format comment is added when UsedDefaultDateFormat is true
+	analysisResult := models.AnalysisResult{
+		Structs: []models.StructDef{
+			{
+				Name:   "Event",
+				IsRoot: true,
+				Fields: []models.FieldInfo{
+					{
+						JSONKey: "date",
+						GoName:  "Date",
+						GoType:  models.TypeInfo{Kind: models.Time, Name: "time.Time"},
+						JSONTag: "`json:\"date\"`",
+					},
+				},
+			},
+		},
+		Imports: map[string]struct{}{
+			"time": {},
+		},
+		UsedDefaultDateFormat: true,
+	}
+
+	generator := NewGenerator()
+	result, err := generator.GenerateStructs(analysisResult, "main")
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "// Note: Ambiguous date fields detected using US format (MM/DD/YYYY).")
+	assert.Contains(t, result, "// To use European format (DD/MM/YYYY), set date_format: \"eu\" in .gotyper.yml")
+}
+
+func TestGenerateStructs_NoDateFormatComment(t *testing.T) {
+	// Test that no comment is added when UsedDefaultDateFormat is false
+	analysisResult := models.AnalysisResult{
+		Structs: []models.StructDef{
+			{
+				Name:   "Event",
+				IsRoot: true,
+				Fields: []models.FieldInfo{
+					{
+						JSONKey: "date",
+						GoName:  "Date",
+						GoType:  models.TypeInfo{Kind: models.Time, Name: "time.Time"},
+						JSONTag: "`json:\"date\"`",
+					},
+				},
+			},
+		},
+		Imports: map[string]struct{}{
+			"time": {},
+		},
+		UsedDefaultDateFormat: false,
+	}
+
+	generator := NewGenerator()
+	result, err := generator.GenerateStructs(analysisResult, "main")
+
+	require.NoError(t, err)
+	assert.NotContains(t, result, "Ambiguous date fields")
+}

@@ -262,25 +262,13 @@ func (a *Analyzer) analyzeString(s string) models.TypeInfo {
 		}
 	}
 
-	// US date formats (MM/DD/YYYY, MM-DD-YYYY)
-	if usDateSlashRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if usDateDashRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+	// Handle potentially ambiguous date formats (US vs EU)
+	// Dates like "05/06/2023" could be May 6 (US) or June 5 (EU)
+	if result := a.detectAmbiguousDate(s); result != nil {
+		return *result
 	}
 
-	// European date formats (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY)
-	if euroDateSlashRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if euroDateDashRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
+	// European dot-separated dates are unambiguous (DD.MM.YYYY)
 	if euroDateDotRegex.MatchString(s) {
 		a.analysisResult.Imports["time"] = struct{}{}
 		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
@@ -297,6 +285,69 @@ func (a *Analyzer) analyzeString(s string) models.TypeInfo {
 	}
 
 	return models.TypeInfo{Kind: models.String, Name: "string"}
+}
+
+// detectAmbiguousDate handles date formats that could be interpreted as either US or EU format.
+// Returns nil if the string is not a date, or a TypeInfo if it matches a date pattern.
+func (a *Analyzer) detectAmbiguousDate(s string) *models.TypeInfo {
+	// Check slash-separated dates
+	usSlashMatch := usDateSlashRegex.MatchString(s)
+	euroSlashMatch := euroDateSlashRegex.MatchString(s)
+
+	if usSlashMatch || euroSlashMatch {
+		if usSlashMatch && euroSlashMatch {
+			// Ambiguous date - use config preference
+			a.markAmbiguousDateUsed()
+		}
+		// Use the preferred format (or whichever one matched)
+		dateFormat := a.config.GetDateFormat()
+		if dateFormat == "eu" && euroSlashMatch {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+		if usSlashMatch {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+		// Fallback to EU if US didn't match but EU did
+		if euroSlashMatch {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+	}
+
+	// Check dash-separated dates
+	usDashMatch := usDateDashRegex.MatchString(s)
+	euroDashMatch := euroDateDashRegex.MatchString(s)
+
+	if usDashMatch || euroDashMatch {
+		if usDashMatch && euroDashMatch {
+			// Ambiguous date - use config preference
+			a.markAmbiguousDateUsed()
+		}
+		dateFormat := a.config.GetDateFormat()
+		if dateFormat == "eu" && euroDashMatch {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+		if usDashMatch {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+		if euroDashMatch {
+			a.analysisResult.Imports["time"] = struct{}{}
+			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
+		}
+	}
+
+	return nil
+}
+
+// markAmbiguousDateUsed records that we detected an ambiguous date using the default format
+func (a *Analyzer) markAmbiguousDateUsed() {
+	if a.config.IsDateFormatDefault() {
+		a.analysisResult.UsedDefaultDateFormat = true
+	}
 }
 
 func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
@@ -782,134 +833,134 @@ func singularize(plural string, customSingulars map[string]string) string {
 // knownSingulars contains built-in plural to singular mappings for common words.
 var knownSingulars = map[string]string{
 	// Irregular plurals
-	"children": "child",
-	"people":   "person",
-	"men":      "man",
-	"women":    "woman",
-	"teeth":    "tooth",
-	"feet":     "foot",
-	"mice":     "mouse",
-	"geese":    "goose",
-	"oxen":     "ox",
-	"indices":  "index",
-	"vertices": "vertex",
-	"matrices": "matrix",
+	"children":   "child",
+	"people":     "person",
+	"men":        "man",
+	"women":      "woman",
+	"teeth":      "tooth",
+	"feet":       "foot",
+	"mice":       "mouse",
+	"geese":      "goose",
+	"oxen":       "ox",
+	"indices":    "index",
+	"vertices":   "vertex",
+	"matrices":   "matrix",
 	"appendices": "appendix",
 
 	// Uncountable / same singular and plural
-	"series":     "series",
-	"species":    "species",
-	"news":       "news",
-	"data":       "data",
-	"media":      "media",
-	"metadata":   "metadata",
-	"info":       "info",
+	"series":      "series",
+	"species":     "species",
+	"news":        "news",
+	"data":        "data",
+	"media":       "media",
+	"metadata":    "metadata",
+	"info":        "info",
 	"information": "information",
-	"equipment":  "equipment",
-	"feedback":   "feedback",
-	"software":   "software",
-	"hardware":   "hardware",
-	"firmware":   "firmware",
-	"middleware": "middleware",
-	"malware":    "malware",
-	"analytics":  "analytics",
-	"metrics":    "metrics",
-	"contents":   "contents",
-	"settings":   "settings",
+	"equipment":   "equipment",
+	"feedback":    "feedback",
+	"software":    "software",
+	"hardware":    "hardware",
+	"firmware":    "firmware",
+	"middleware":  "middleware",
+	"malware":     "malware",
+	"analytics":   "analytics",
+	"metrics":     "metrics",
+	"contents":    "contents",
+	"settings":    "settings",
 	"credentials": "credentials",
 	"permissions": "permission",
 
 	// Common API/programming terms that need explicit mapping
-	"statuses":   "status",
-	"status":     "status",
-	"analyses":   "analysis",
-	"analysis":   "analysis",
-	"bases":      "basis",
-	"basis":      "basis",
-	"crises":     "crisis",
-	"criteria":   "criterion",
-	"phenomena":  "phenomenon",
-	"schemas":    "schema",
-	"schemata":   "schema",
-	"aliases":    "alias",
-	"addresses":  "address",
-	"processes":  "process",
-	"classes":    "class",
-	"buses":      "bus",
-	"gases":      "gas",
-	"caches":     "cache",
-	"matches":    "match",
-	"batches":    "batch",
-	"patches":    "patch",
-	"watches":    "watch",
-	"switches":   "switch",
-	"dispatches": "dispatch",
-	"searches":   "search",
-	"branches":   "branch",
-	"crashes":    "crash",
-	"flashes":    "flash",
-	"splashes":   "splash",
-	"meshes":     "mesh",
-	"hashes":     "hash",
-	"pushes":     "push",
-	"indexes":    "index",
-	"boxes":      "box",
-	"taxes":      "tax",
-	"fixes":      "fix",
-	"mixes":      "mix",
-	"prefixes":   "prefix",
-	"suffixes":   "suffix",
-	"proxies":    "proxy",
-	"replies":    "reply",
-	"queries":    "query",
-	"entries":    "entry",
-	"histories":  "history",
-	"factories":  "factory",
-	"repositories": "repository",
-	"directories": "directory",
-	"categories": "category",
-	"properties": "property",
-	"bodies":     "body",
-	"copies":     "copy",
-	"policies":   "policy",
-	"strategies": "strategy",
-	"entities":   "entity",
-	"activities": "activity",
-	"priorities": "priority",
-	"capacities": "capacity",
-	"velocities": "velocity",
-	"identities": "identity",
-	"authorities": "authority",
-	"utilities":  "utility",
-	"facilities": "facility",
-	"capabilities": "capability",
+	"statuses":       "status",
+	"status":         "status",
+	"analyses":       "analysis",
+	"analysis":       "analysis",
+	"bases":          "basis",
+	"basis":          "basis",
+	"crises":         "crisis",
+	"criteria":       "criterion",
+	"phenomena":      "phenomenon",
+	"schemas":        "schema",
+	"schemata":       "schema",
+	"aliases":        "alias",
+	"addresses":      "address",
+	"processes":      "process",
+	"classes":        "class",
+	"buses":          "bus",
+	"gases":          "gas",
+	"caches":         "cache",
+	"matches":        "match",
+	"batches":        "batch",
+	"patches":        "patch",
+	"watches":        "watch",
+	"switches":       "switch",
+	"dispatches":     "dispatch",
+	"searches":       "search",
+	"branches":       "branch",
+	"crashes":        "crash",
+	"flashes":        "flash",
+	"splashes":       "splash",
+	"meshes":         "mesh",
+	"hashes":         "hash",
+	"pushes":         "push",
+	"indexes":        "index",
+	"boxes":          "box",
+	"taxes":          "tax",
+	"fixes":          "fix",
+	"mixes":          "mix",
+	"prefixes":       "prefix",
+	"suffixes":       "suffix",
+	"proxies":        "proxy",
+	"replies":        "reply",
+	"queries":        "query",
+	"entries":        "entry",
+	"histories":      "history",
+	"factories":      "factory",
+	"repositories":   "repository",
+	"directories":    "directory",
+	"categories":     "category",
+	"properties":     "property",
+	"bodies":         "body",
+	"copies":         "copy",
+	"policies":       "policy",
+	"strategies":     "strategy",
+	"entities":       "entity",
+	"activities":     "activity",
+	"priorities":     "priority",
+	"capacities":     "capacity",
+	"velocities":     "velocity",
+	"identities":     "identity",
+	"authorities":    "authority",
+	"utilities":      "utility",
+	"facilities":     "facility",
+	"capabilities":   "capability",
 	"availabilities": "availability",
-	"dependencies": "dependency",
-	"currencies": "currency",
-	"frequencies": "frequency",
-	"deliveries": "delivery",
-	"discoveries": "discovery",
-	"inventories": "inventory",
-	"accessories": "accessory",
-	"summaries":  "summary",
-	"libraries":  "library",
-	"binaries":   "binary",
-	"boundaries": "boundary",
-	"memories":   "memory",
-	"registries": "registry",
-	"keys":       "key",
-	"values":     "value",
-	"leaves":     "leaf",
-	"lives":      "life",
-	"selves":     "self",
-	"halves":     "half",
-	"wolves":     "wolf",
-	"knives":     "knife",
-	"wives":      "wife",
-	"shelves":    "shelf",
-	"calves":     "calf",
-	"loaves":     "loaf",
-	"thieves":    "thief",
+	"dependencies":   "dependency",
+	"currencies":     "currency",
+	"frequencies":    "frequency",
+	"deliveries":     "delivery",
+	"discoveries":    "discovery",
+	"inventories":    "inventory",
+	"accessories":    "accessory",
+	"summaries":      "summary",
+	"libraries":      "library",
+	"binaries":       "binary",
+	"boundaries":     "boundary",
+	"memories":       "memory",
+	"registries":     "registry",
+	"keys":           "key",
+	"values":         "value",
+	"leaves":         "leaf",
+	"lives":          "life",
+	"selves":         "self",
+	"halves":         "half",
+	"wolves":         "wolf",
+	"knives":         "knife",
+	"wives":          "wife",
+	"shelves":        "shelf",
+	"calves":         "calf",
+	"loaves":         "loaf",
+	"thieves":        "thief",
 }
 
 // preserveCase applies the casing pattern from the original word to the result

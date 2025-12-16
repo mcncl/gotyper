@@ -35,6 +35,7 @@ type TypesConfig struct {
 	ForceInt64           bool          `yaml:"force_int64"`
 	OptionalAsPointers   bool          `yaml:"optional_as_pointers"`
 	UnixTimestampsAsTime bool          `yaml:"unix_timestamps_as_time"` // Convert Unix timestamps to time.Time instead of int64
+	DateFormat           string        `yaml:"date_format"`             // Preferred date format for ambiguous dates: "us" (MM/DD/YYYY) or "eu" (DD/MM/YYYY)
 	Mappings             []TypeMapping `yaml:"mappings"`
 }
 
@@ -122,6 +123,7 @@ func NewConfig() *Config {
 			ForceInt64:           false,
 			OptionalAsPointers:   true,
 			UnixTimestampsAsTime: false, // Default: keep as int64 for flexibility
+			DateFormat:           "",    // Default: empty means "us" with a comment noting the assumption
 			Mappings:             []TypeMapping{},
 		},
 		Naming: NamingConfig{
@@ -340,6 +342,24 @@ func (c *Config) ShouldSkipField(fieldName string) bool {
 		}
 	}
 	return false
+}
+
+// GetDateFormat returns the effective date format preference.
+// Returns "us" or "eu". If not explicitly configured, defaults to "us".
+func (c *Config) GetDateFormat() string {
+	switch c.Types.DateFormat {
+	case "eu", "european":
+		return "eu"
+	case "us", "american", "":
+		return "us"
+	default:
+		return "us"
+	}
+}
+
+// IsDateFormatDefault returns true if the date format is using the default (not explicitly configured).
+func (c *Config) IsDateFormatDefault() bool {
+	return c.Types.DateFormat == ""
 }
 
 // MergeConfigs merges CLI overrides into a base config
