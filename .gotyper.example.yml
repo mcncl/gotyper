@@ -50,7 +50,7 @@ types:
 naming:
   # Convert snake_case JSON keys to PascalCase Go field names
   pascal_case_fields: true
-  
+
   # Custom field name mappings (takes precedence over pascal_case_fields)
   field_mappings:
     "user_id": "UserID"
@@ -58,6 +58,14 @@ naming:
     "url": "URL"
     "http_status": "HTTPStatus"
     "oauth_token": "OAuthToken"
+
+  # Custom plural to singular mappings for array element naming
+  # Use this for domain-specific terms not in the built-in dictionary
+  custom_singulars:
+    "datums": "datum"        # Scientific term
+    "formulae": "formula"    # Latin plural
+    "stimuli": "stimulus"    # Psychology/biology term
+    "alumni": "alumnus"      # Academic term
 
 # JSON tag generation
 json_tags:

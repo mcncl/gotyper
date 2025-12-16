@@ -444,7 +444,7 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 	}
 
 	// Suggested name for elements of an array should be singularized form of the array's suggested name.
-	elementSuggestedName := singularize(a.getFieldName(suggestedElementName))
+	elementSuggestedName := singularize(a.getFieldName(suggestedElementName), a.config.Naming.CustomSingulars)
 
 	// Check if this is a root array (if the suggested name is already in structNames with count 1)
 	// For root arrays in tests like TestAnalyze_ArrayOfObjects, we want to preserve the exact name
@@ -696,60 +696,232 @@ func (a *Analyzer) determineOmitempty(originalValue models.JSONValue, typeInfo m
 }
 
 // singularize attempts to convert a plural name to a singular one.
-// This is a basic implementation and might need a more robust library for complex cases.
-var knownSingulars = map[string]string{
-	"series":    "series",
-	"status":    "status",
-	"analysis":  "analysis",
-	"species":   "species",
-	"news":      "news",
-	"goods":     "goods",
-	"children":  "child",
-	"people":    "person",
-	"men":       "man",
-	"women":     "woman",
-	"teeth":     "tooth",
-	"feet":      "foot",
-	"mice":      "mouse",
-	"geese":     "goose",
-	"data":      "data",
-	"media":     "media",
-	"addresses": "address",
-}
-
-func singularize(plural string) string {
-	if singular, ok := knownSingulars[strings.ToLower(plural)]; ok {
-		// Preserve original casing if the first letter was capitalized
-		if len(plural) > 0 && strings.ToUpper(string(plural[0])) == string(plural[0]) {
-			if len(singular) > 0 {
-				return strings.ToUpper(string(singular[0])) + singular[1:]
-			}
-		}
-		return singular
-	}
-
+// Uses a dictionary of known singulars plus suffix-based rules for common patterns.
+// The customSingulars parameter allows users to provide additional mappings via config.
+func singularize(plural string, customSingulars map[string]string) string {
 	lowerPlural := strings.ToLower(plural)
 
-	if strings.HasSuffix(lowerPlural, "ies") && len(lowerPlural) > 3 {
+	// Check custom singulars first (user config takes precedence)
+	if customSingulars != nil {
+		if singular, ok := customSingulars[lowerPlural]; ok {
+			return preserveCase(plural, singular)
+		}
+	}
+
+	// Check built-in dictionary
+	if singular, ok := knownSingulars[lowerPlural]; ok {
+		return preserveCase(plural, singular)
+	}
+
+	// Rule-based singularization (order matters - most specific first)
+
+	// Words ending in -ies (but not -eies like "keys")
+	if strings.HasSuffix(lowerPlural, "ies") && len(lowerPlural) > 4 {
+		// Check it's not a word like "series" or "species" (already in dictionary)
+		// Convert -ies to -y: companies -> company
 		return plural[:len(plural)-3] + "y"
 	}
 
-	// Avoid removing 's' from words like 'bus', 'gas', 'class', 'address'
-	if strings.HasSuffix(lowerPlural, "ss") ||
-		strings.HasSuffix(lowerPlural, "us") || // e.g. status, virus
-		strings.HasSuffix(lowerPlural, "is") { // e.g. analysis, basis
+	// Words ending in -ves -> -f or -fe (leaves -> leaf, lives -> life)
+	if strings.HasSuffix(lowerPlural, "ves") && len(lowerPlural) > 4 {
+		base := plural[:len(plural)-3]
+		// Most -ves words become -f (leaf, wolf, half, etc.)
+		return base + "f"
+	}
+
+	// Words ending in -xes -> -x (boxes -> box, indexes -> index)
+	if strings.HasSuffix(lowerPlural, "xes") && len(lowerPlural) > 4 {
+		return plural[:len(plural)-2]
+	}
+
+	// Words ending in -ches -> -ch (matches -> match, branches -> branch)
+	if strings.HasSuffix(lowerPlural, "ches") && len(lowerPlural) > 5 {
+		return plural[:len(plural)-2]
+	}
+
+	// Words ending in -shes -> -sh (crashes -> crash, hashes -> hash)
+	if strings.HasSuffix(lowerPlural, "shes") && len(lowerPlural) > 5 {
+		return plural[:len(plural)-2]
+	}
+
+	// Words ending in -sses -> -ss (classes -> class, passes -> pass)
+	if strings.HasSuffix(lowerPlural, "sses") && len(lowerPlural) > 5 {
+		return plural[:len(plural)-2]
+	}
+
+	// Words ending in -oes -> -o (heroes -> hero, potatoes -> potato)
+	// But not all -oes words: some are just -os (photos, videos)
+	if strings.HasSuffix(lowerPlural, "oes") && len(lowerPlural) > 4 {
+		return plural[:len(plural)-2]
+	}
+
+	// Words ending in -ses (but not -sses which is handled above)
+	// This handles cases like "responses -> response", "databases -> database"
+	if strings.HasSuffix(lowerPlural, "ses") && len(lowerPlural) > 4 {
+		// Check if it's a word ending in -se (response, database, house)
+		// vs a word ending in -sis (analysis, basis) - those are in dictionary
+		return plural[:len(plural)-1]
+	}
+
+	// Avoid removing 's' from words that end in these patterns
+	if strings.HasSuffix(lowerPlural, "ss") || // class, pass, etc.
+		strings.HasSuffix(lowerPlural, "us") || // status, virus, etc.
+		strings.HasSuffix(lowerPlural, "is") || // analysis, basis, etc.
+		strings.HasSuffix(lowerPlural, "os") { // chaos, etc.
 		return plural
 	}
 
+	// Generic -s removal (users -> user, items -> item)
 	if strings.HasSuffix(lowerPlural, "s") && len(lowerPlural) > 1 {
 		return plural[:len(plural)-1]
 	}
 
-	if strings.HasSuffix(lowerPlural, "es") && len(lowerPlural) > 2 {
-		return plural[:len(plural)-2]
-	}
+	return plural
+}
 
-	return plural // Default to original if no simple rule applies
+// knownSingulars contains built-in plural to singular mappings for common words.
+var knownSingulars = map[string]string{
+	// Irregular plurals
+	"children": "child",
+	"people":   "person",
+	"men":      "man",
+	"women":    "woman",
+	"teeth":    "tooth",
+	"feet":     "foot",
+	"mice":     "mouse",
+	"geese":    "goose",
+	"oxen":     "ox",
+	"indices":  "index",
+	"vertices": "vertex",
+	"matrices": "matrix",
+	"appendices": "appendix",
+
+	// Uncountable / same singular and plural
+	"series":     "series",
+	"species":    "species",
+	"news":       "news",
+	"data":       "data",
+	"media":      "media",
+	"metadata":   "metadata",
+	"info":       "info",
+	"information": "information",
+	"equipment":  "equipment",
+	"feedback":   "feedback",
+	"software":   "software",
+	"hardware":   "hardware",
+	"firmware":   "firmware",
+	"middleware": "middleware",
+	"malware":    "malware",
+	"analytics":  "analytics",
+	"metrics":    "metrics",
+	"contents":   "contents",
+	"settings":   "settings",
+	"credentials": "credentials",
+	"permissions": "permission",
+
+	// Common API/programming terms that need explicit mapping
+	"statuses":   "status",
+	"status":     "status",
+	"analyses":   "analysis",
+	"analysis":   "analysis",
+	"bases":      "basis",
+	"basis":      "basis",
+	"crises":     "crisis",
+	"criteria":   "criterion",
+	"phenomena":  "phenomenon",
+	"schemas":    "schema",
+	"schemata":   "schema",
+	"aliases":    "alias",
+	"addresses":  "address",
+	"processes":  "process",
+	"classes":    "class",
+	"buses":      "bus",
+	"gases":      "gas",
+	"caches":     "cache",
+	"matches":    "match",
+	"batches":    "batch",
+	"patches":    "patch",
+	"watches":    "watch",
+	"switches":   "switch",
+	"dispatches": "dispatch",
+	"searches":   "search",
+	"branches":   "branch",
+	"crashes":    "crash",
+	"flashes":    "flash",
+	"splashes":   "splash",
+	"meshes":     "mesh",
+	"hashes":     "hash",
+	"pushes":     "push",
+	"indexes":    "index",
+	"boxes":      "box",
+	"taxes":      "tax",
+	"fixes":      "fix",
+	"mixes":      "mix",
+	"prefixes":   "prefix",
+	"suffixes":   "suffix",
+	"proxies":    "proxy",
+	"replies":    "reply",
+	"queries":    "query",
+	"entries":    "entry",
+	"histories":  "history",
+	"factories":  "factory",
+	"repositories": "repository",
+	"directories": "directory",
+	"categories": "category",
+	"properties": "property",
+	"bodies":     "body",
+	"copies":     "copy",
+	"policies":   "policy",
+	"strategies": "strategy",
+	"entities":   "entity",
+	"activities": "activity",
+	"priorities": "priority",
+	"capacities": "capacity",
+	"velocities": "velocity",
+	"identities": "identity",
+	"authorities": "authority",
+	"utilities":  "utility",
+	"facilities": "facility",
+	"capabilities": "capability",
+	"availabilities": "availability",
+	"dependencies": "dependency",
+	"currencies": "currency",
+	"frequencies": "frequency",
+	"deliveries": "delivery",
+	"discoveries": "discovery",
+	"inventories": "inventory",
+	"accessories": "accessory",
+	"summaries":  "summary",
+	"libraries":  "library",
+	"binaries":   "binary",
+	"boundaries": "boundary",
+	"memories":   "memory",
+	"registries": "registry",
+	"keys":       "key",
+	"values":     "value",
+	"leaves":     "leaf",
+	"lives":      "life",
+	"selves":     "self",
+	"halves":     "half",
+	"wolves":     "wolf",
+	"knives":     "knife",
+	"wives":      "wife",
+	"shelves":    "shelf",
+	"calves":     "calf",
+	"loaves":     "loaf",
+	"thieves":    "thief",
+}
+
+// preserveCase applies the casing pattern from the original word to the result
+func preserveCase(original, result string) string {
+	if len(original) == 0 || len(result) == 0 {
+		return result
+	}
+	// If original starts with uppercase, capitalize result
+	if original[0] >= 'A' && original[0] <= 'Z' {
+		return strings.ToUpper(string(result[0])) + result[1:]
+	}
+	return result
 }
 
 // areTypeInfosEqual checks if two TypeInfo objects represent the same type.

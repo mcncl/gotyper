@@ -614,3 +614,32 @@ json_tags:
 	assert.True(t, cfg.ShouldSkipField("debug_info"))
 	assert.False(t, cfg.ShouldSkipField("regular_field"))
 }
+
+func TestConfig_CustomSingulars(t *testing.T) {
+	yamlContent := `
+naming:
+  pascal_case_fields: true
+  custom_singulars:
+    "datums": "datum"
+    "formulae": "formula"
+    "alumni": "alumnus"
+`
+
+	tmpFile, err := os.CreateTemp("", "config_singulars_*.yml")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+	_, err = tmpFile.WriteString(yamlContent)
+	require.NoError(t, err)
+	_ = tmpFile.Close()
+
+	cfg, err := LoadConfig(tmpFile.Name())
+	require.NoError(t, err)
+
+	// Verify custom singulars are loaded
+	require.NotNil(t, cfg.Naming.CustomSingulars)
+	assert.Len(t, cfg.Naming.CustomSingulars, 3)
+	assert.Equal(t, "datum", cfg.Naming.CustomSingulars["datums"])
+	assert.Equal(t, "formula", cfg.Naming.CustomSingulars["formulae"])
+	assert.Equal(t, "alumnus", cfg.Naming.CustomSingulars["alumni"])
+}

@@ -53,6 +53,7 @@ type TypeMapping struct {
 type NamingConfig struct {
 	PascalCaseFields bool              `yaml:"pascal_case_fields"`
 	FieldMappings    map[string]string `yaml:"field_mappings"`
+	CustomSingulars  map[string]string `yaml:"custom_singulars"` // Custom plural->singular mappings (e.g., "datums": "datum")
 }
 
 // JSONTagsConfig controls JSON tag generation
@@ -126,6 +127,7 @@ func NewConfig() *Config {
 		Naming: NamingConfig{
 			PascalCaseFields: true,
 			FieldMappings:    make(map[string]string),
+			CustomSingulars:  make(map[string]string),
 		},
 		JSONTags: JSONTagsConfig{
 			OmitemptyForPointers: true,

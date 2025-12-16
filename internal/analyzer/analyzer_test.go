@@ -1018,22 +1018,177 @@ func TestSingularize(t *testing.T) {
 		input    string
 		expected string
 	}{
+		// Basic -s removal
 		{"users", "user"},
-		{"addresses", "address"},
-		{"categories", "category"},
-		{"children", "child"},
-		{"person", "person"},
-		{"data", "data"},
-		{"series", "series"},
-		{"item", "item"},
+		{"items", "item"},
+		{"events", "event"},
+		{"requests", "request"},
+		{"responses", "response"},
+
+		// Case preservation
 		{"Items", "Item"},
+		{"Users", "User"},
 		{"Properties", "Property"},
 		{"Cities", "City"},
+
+		// Irregular plurals (dictionary)
+		{"children", "child"},
+		{"people", "person"},
+		{"men", "man"},
+		{"women", "woman"},
+		{"teeth", "tooth"},
+		{"feet", "foot"},
+		{"mice", "mouse"},
+		{"geese", "goose"},
+		{"oxen", "ox"},
+		{"indices", "index"},
+		{"vertices", "vertex"},
+		{"matrices", "matrix"},
+
+		// Uncountable words (same singular/plural)
+		{"data", "data"},
+		{"media", "media"},
+		{"metadata", "metadata"},
+		{"series", "series"},
+		{"species", "species"},
+		{"news", "news"},
+		{"analytics", "analytics"},
+		{"metrics", "metrics"},
+		{"software", "software"},
+		{"hardware", "hardware"},
+		{"feedback", "feedback"},
+		{"information", "information"},
+
+		// Words ending in -es that need dictionary
+		{"statuses", "status"},
+		{"addresses", "address"},
+		{"processes", "process"},
+		{"classes", "class"},
+		{"buses", "bus"},
+		{"aliases", "alias"},
+		{"analyses", "analysis"},
+
+		// Words ending in -ches (rule-based)
+		{"matches", "match"},
+		{"batches", "batch"},
+		{"patches", "patch"},
+		{"branches", "branch"},
+		{"searches", "search"},
+		{"switches", "switch"},
+
+		// Words ending in -shes (rule-based)
+		{"crashes", "crash"},
+		{"hashes", "hash"},
+		{"flashes", "flash"},
+		{"pushes", "push"},
+		{"meshes", "mesh"},
+
+		// Words ending in -xes (rule-based)
+		{"boxes", "box"},
+		{"indexes", "index"},
+		{"taxes", "tax"},
+		{"fixes", "fix"},
+		{"prefixes", "prefix"},
+		{"suffixes", "suffix"},
+
+		// Words ending in -sses (rule-based)
+		{"classes", "class"},
+		{"passes", "pass"},
+		{"processes", "process"},
+
+		// Words ending in -ies (rule-based)
+		{"categories", "category"},
+		{"queries", "query"},
+		{"entries", "entry"},
+		{"replies", "reply"},
+		{"factories", "factory"},
+		{"repositories", "repository"},
+		{"directories", "directory"},
+		{"properties", "property"},
+		{"policies", "policy"},
+		{"strategies", "strategy"},
+		{"entities", "entity"},
+		{"activities", "activity"},
+		{"dependencies", "dependency"},
+		{"currencies", "currency"},
+		{"libraries", "library"},
+
+		// Words ending in -ves (dictionary)
+		{"leaves", "leaf"},
+		{"lives", "life"},
+		{"knives", "knife"},
+		{"shelves", "shelf"},
+		{"wolves", "wolf"},
+		{"halves", "half"},
+
+		// Words ending in -oes (rule-based)
+		{"heroes", "hero"},
+		{"potatoes", "potato"},
+		{"tomatoes", "tomato"},
+		{"echoes", "echo"},
+
+		// Words ending in -ses (rule-based)
+		{"databases", "database"},
+		{"responses", "response"},
+		{"purposes", "purpose"},
+		{"houses", "house"},
+
+		// Words that should NOT be singularized (ending in ss, us, is, os)
+		{"status", "status"},
+		{"analysis", "analysis"},
+		{"basis", "basis"},
+		{"class", "class"},
+		{"pass", "pass"},
+		{"virus", "virus"},
+		{"chaos", "chaos"},
+
+		// Already singular
+		{"item", "item"},
+		{"user", "user"},
+		{"person", "person"},
+
+		// Common programming/API terms
+		{"schemas", "schema"},
+		{"caches", "cache"},
+		{"proxies", "proxy"},
+		{"credentials", "credentials"},
+		{"settings", "settings"},
+		{"permissions", "permission"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.expected, singularize(tt.input))
+			assert.Equal(t, tt.expected, singularize(tt.input, nil))
+		})
+	}
+}
+
+func TestSingularize_CustomSingulars(t *testing.T) {
+	customSingulars := map[string]string{
+		"datums":    "datum",
+		"appendix":  "appendix", // Override to keep as-is
+		"octopuses": "octopus",
+		"cacti":     "cactus",
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Custom singulars take precedence
+		{"datums", "datum"},
+		{"Datums", "Datum"}, // Case preservation
+		{"octopuses", "octopus"},
+		{"cacti", "cactus"},
+		// Built-in still works when not overridden
+		{"users", "user"},
+		{"children", "child"},
+		{"categories", "category"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, singularize(tt.input, customSingulars))
 		})
 	}
 }
