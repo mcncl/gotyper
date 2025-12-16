@@ -562,6 +562,129 @@ func TestAnalyze_UnixTimestampConfiguration(t *testing.T) {
 	}
 }
 
+func TestAnalyze_DateFormatConfiguration(t *testing.T) {
+	tests := []struct {
+		name                      string
+		jsonInput                 string
+		dateFormat                string
+		expectedUsedDefaultFormat bool
+		expectTimeImport          bool
+		description               string
+	}{
+		{
+			name:                      "Ambiguous date with default US format",
+			jsonInput:                 `{"date": "05/06/2023"}`,
+			dateFormat:                "", // Default - empty string
+			expectedUsedDefaultFormat: true,
+			expectTimeImport:          true,
+			description:               "Ambiguous date with default format should set UsedDefaultDateFormat flag",
+		},
+		{
+			name:                      "Ambiguous date with explicit US format",
+			jsonInput:                 `{"date": "05/06/2023"}`,
+			dateFormat:                "us",
+			expectedUsedDefaultFormat: false,
+			expectTimeImport:          true,
+			description:               "Ambiguous date with explicit US format should not set UsedDefaultDateFormat flag",
+		},
+		{
+			name:                      "Ambiguous date with EU format",
+			jsonInput:                 `{"date": "05/06/2023"}`,
+			dateFormat:                "eu",
+			expectedUsedDefaultFormat: false,
+			expectTimeImport:          true,
+			description:               "Ambiguous date with EU format should not set UsedDefaultDateFormat flag",
+		},
+		{
+			name:                      "Unambiguous US-only date (month > 12)",
+			jsonInput:                 `{"date": "12/25/2023"}`,
+			dateFormat:                "",
+			expectedUsedDefaultFormat: false, // Not ambiguous - only US format matches
+			expectTimeImport:          true,
+			description:               "Date with day > 12 is unambiguous (only US matches)",
+		},
+		{
+			name:                      "Unambiguous EU-only date (day > 12)",
+			jsonInput:                 `{"date": "25/12/2023"}`,
+			dateFormat:                "",
+			expectedUsedDefaultFormat: false, // Not ambiguous - only EU format matches
+			expectTimeImport:          true,
+			description:               "Date with first number > 12 is unambiguous (only EU matches)",
+		},
+		{
+			name:                      "Ambiguous dash-separated date",
+			jsonInput:                 `{"date": "05-06-2023"}`,
+			dateFormat:                "",
+			expectedUsedDefaultFormat: true,
+			expectTimeImport:          true,
+			description:               "Ambiguous dash-separated date should set flag",
+		},
+		{
+			name:                      "EU dot-separated date (unambiguous)",
+			jsonInput:                 `{"date": "25.12.2023"}`,
+			dateFormat:                "",
+			expectedUsedDefaultFormat: false,
+			expectTimeImport:          true,
+			description:               "Dot-separated dates are always EU format (unambiguous)",
+		},
+		{
+			name:                      "ISO date format (unambiguous)",
+			jsonInput:                 `{"date": "2023-12-25"}`,
+			dateFormat:                "",
+			expectedUsedDefaultFormat: false,
+			expectTimeImport:          true,
+			description:               "ISO format dates are unambiguous",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Types.DateFormat = tt.dateFormat
+
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err, "Failed to parse JSON for test: %s", tt.description)
+
+			analyzer := NewAnalyzerWithConfig(cfg)
+			result, err := analyzer.Analyze(ir, "TestStruct")
+			require.NoError(t, err, "Failed to analyze for test: %s", tt.description)
+
+			assert.Equal(t, tt.expectedUsedDefaultFormat, result.UsedDefaultDateFormat,
+				"UsedDefaultDateFormat mismatch for test: %s", tt.description)
+
+			if tt.expectTimeImport {
+				assert.Contains(t, result.Imports, "time", "Expected time import for test: %s", tt.description)
+			}
+		})
+	}
+}
+
+func TestConfig_DateFormatHelpers(t *testing.T) {
+	tests := []struct {
+		name              string
+		configValue       string
+		expectedFormat    string
+		expectedIsDefault bool
+	}{
+		{"empty string defaults to us", "", "us", true},
+		{"explicit us", "us", "us", false},
+		{"american alias", "american", "us", false},
+		{"explicit eu", "eu", "eu", false},
+		{"european alias", "european", "eu", false},
+		{"unknown defaults to us", "invalid", "us", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Types.DateFormat = tt.configValue
+
+			assert.Equal(t, tt.expectedFormat, cfg.GetDateFormat())
+			assert.Equal(t, tt.expectedIsDefault, cfg.IsDateFormatDefault())
+		})
+	}
+}
+
 // TestAnalyze_ImprovedNumberTypes tests intelligent number type selection
 func TestAnalyze_ImprovedNumberTypes(t *testing.T) {
 	tests := []struct {

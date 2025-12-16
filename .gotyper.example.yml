@@ -17,10 +17,15 @@ formatting:
 types:
   # Prefer int64 over int for all integers (safer for large numbers)
   force_int64: false
-  
+
   # Always use pointers for optional fields (fields that can be null/missing)
   optional_as_pointers: true
-  
+
+  # Preferred date format for ambiguous dates like "05/06/2023"
+  # Options: "us" (MM/DD/YYYY - default) or "eu" (DD/MM/YYYY)
+  # If not set, defaults to "us" and adds a comment to the output
+  date_format: "us"
+
   # Custom type mappings for specific patterns
   mappings:
     # Map fields containing "id" to specific types

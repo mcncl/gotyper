@@ -68,4 +68,6 @@ type AnalysisResult struct {
 	Structs []StructDef `json:"structs"`
 	// We might add required imports here later, e.g. "time", "github.com/google/uuid"
 	Imports map[string]struct{} `json:"imports"`
+	// UsedDefaultDateFormat is true if ambiguous dates were detected using the default US format
+	UsedDefaultDateFormat bool `json:"used_default_date_format,omitempty"`
 }
