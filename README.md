@@ -354,11 +354,70 @@ package api
 
 type Response struct {
 	APIKey       string `json:"api_key" yaml:"api_key"`
-	PasswordHash string `json:"password_hash,-" yaml:"password_hash"` // Sensitive data excluded from serialization
+	PasswordHash string `json:"-" yaml:"password_hash"` // Sensitive data excluded from serialization
 	UserID       int64  `json:"user_id" yaml:"user_id"` // Database ID
 	ViewCount    int64  `json:"view_count,omitempty,string" yaml:"view_count"`
 	// Note: internal_debug_info field is completely excluded
 }
+```
+
+### Validation Tags Example
+
+Generate structs with validation tags for use with [go-playground/validator](https://github.com/go-playground/validator):
+
+**Configuration (`.gotyper.yml`):**
+```yaml
+package: "models"
+root_name: "User"
+
+validation:
+  enabled: true
+  rules:
+    - pattern: ".*email.*"
+      tag: 'validate:"required,email"'
+    - pattern: ".*_id$|^id$"
+      tag: 'validate:"required,min=1"'
+    - pattern: "^age$"
+      tag: 'validate:"required,min=0,max=150"'
+
+json_tags:
+  custom_options:
+    - pattern: ".*password.*"
+      options: "-"
+      comment: "Sensitive field excluded from JSON"
+```
+
+**Input JSON:**
+```json
+{
+  "user_id": 123,
+  "email": "john@example.com",
+  "name": "John Doe",
+  "age": 30,
+  "password": "secret123"
+}
+```
+
+**Generated Go Code:**
+```go
+package models
+
+type User struct {
+	Age      int64  `json:"age" validate:"required,min=0,max=150"`
+	Email    string `json:"email" validate:"required,email"`
+	Name     string `json:"name"`
+	Password string `json:"-"` // Sensitive field excluded from JSON
+	UserId   int64  `json:"user_id" validate:"required,min=1"`
+}
+```
+
+The validation tags work with the popular [go-playground/validator](https://github.com/go-playground/validator) package. Simply import and use:
+
+```go
+import "github.com/go-playground/validator/v10"
+
+validate := validator.New()
+err := validate.Struct(user)
 ```
 
 ## Type Detection
@@ -505,12 +564,16 @@ json_tags:
     - "internal_use_only"
     - "debug_info"
 
-# Validation tags (if implemented)
+# Validation tag generation (for go-playground/validator)
 validation:
-  enabled: false                   # Enable validation tag generation
+  enabled: true                    # Enable validation tag generation
   rules:
     - pattern: ".*email.*"
       tag: "validate:\"required,email\""
+    - pattern: ".*_id$|^id$"
+      tag: "validate:\"required,min=1\""
+    - pattern: ".*password.*"
+      tag: "validate:\"required,min=8\""
 
 # Output options
 output:

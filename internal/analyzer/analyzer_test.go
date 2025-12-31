@@ -886,7 +886,7 @@ json_tags:
 			jsonInput: `{"password_hash": "secret", "view_count": 42, "username": "john"}`,
 			expectedTags: map[string]map[string]string{
 				"password_hash": {
-					"json": "password_hash,-",
+					"json": "-",
 					"yaml": "password_hash",
 				},
 				"view_count": {
@@ -1613,6 +1613,131 @@ func TestAreStructDefsEquivalent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := areStructDefsEquivalent(tt.s1, tt.s2)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestValidationTagGeneration tests the validation tag generation feature
+func TestValidationTagGeneration(t *testing.T) {
+	tests := []struct {
+		name                 string
+		configYAML           string
+		jsonInput            string
+		expectedValidateTags map[string]string // field -> expected validate tag
+		expectNoValidation   []string          // fields that should NOT have validation tags
+	}{
+		{
+			name: "validation enabled with email pattern",
+			configYAML: `
+package: "models"
+root_name: "User"
+validation:
+  enabled: true
+  rules:
+    - pattern: ".*email.*"
+      tag: 'validate:"required,email"'
+`,
+			jsonInput: `{"email": "test@example.com", "name": "John"}`,
+			expectedValidateTags: map[string]string{
+				"email": `validate:"required,email"`,
+			},
+			expectNoValidation: []string{"name"},
+		},
+		{
+			name: "validation disabled",
+			configYAML: `
+package: "models"
+root_name: "User"
+validation:
+  enabled: false
+  rules:
+    - pattern: ".*email.*"
+      tag: 'validate:"required,email"'
+`,
+			jsonInput:            `{"email": "test@example.com", "name": "John"}`,
+			expectedValidateTags: map[string]string{},
+			expectNoValidation:   []string{"email", "name"},
+		},
+		{
+			name: "multiple validation rules",
+			configYAML: `
+package: "models"
+root_name: "User"
+validation:
+  enabled: true
+  rules:
+    - pattern: ".*email.*"
+      tag: 'validate:"required,email"'
+    - pattern: ".*_id$|^id$"
+      tag: 'validate:"required,min=1"'
+    - pattern: ".*password.*"
+      tag: 'validate:"required,min=8"'
+`,
+			jsonInput: `{"email": "test@example.com", "user_id": 123, "password": "secret123", "name": "John"}`,
+			expectedValidateTags: map[string]string{
+				"email":    `validate:"required,email"`,
+				"user_id":  `validate:"required,min=1"`,
+				"password": `validate:"required,min=8"`,
+			},
+			expectNoValidation: []string{"name"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temp config file
+			tmpFile, err := os.CreateTemp("", "validation_test_*.yml")
+			require.NoError(t, err)
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+			_, err = tmpFile.WriteString(tt.configYAML)
+			require.NoError(t, err)
+			_ = tmpFile.Close()
+
+			// Load config
+			cfg, err := config.LoadConfig(tmpFile.Name())
+			require.NoError(t, err)
+
+			// Parse and analyze
+			ir, err := parser.ParseString(tt.jsonInput)
+			require.NoError(t, err)
+
+			analyzer := NewAnalyzerWithConfig(cfg)
+			result, err := analyzer.Analyze(ir, cfg.RootName)
+			require.NoError(t, err)
+
+			require.Len(t, result.Structs, 1)
+			structDef := result.Structs[0]
+
+			// Check expected validation tags
+			for fieldName, expectedTag := range tt.expectedValidateTags {
+				found := false
+				for _, field := range structDef.Fields {
+					if field.JSONKey == fieldName {
+						found = true
+						// Check the tags map contains the validation tag
+						validateTag, exists := field.Tags["validate"]
+						assert.True(t, exists, "Expected validate tag for field %s", fieldName)
+						assert.Equal(t, expectedTag, validateTag, "Validate tag for field %s", fieldName)
+						// Check the JSONTag string contains the validation tag
+						assert.Contains(t, field.JSONTag, expectedTag, "JSONTag should contain validation for field %s", fieldName)
+						break
+					}
+				}
+				assert.True(t, found, "Expected field %s to be present", fieldName)
+			}
+
+			// Check fields that should NOT have validation
+			for _, fieldName := range tt.expectNoValidation {
+				for _, field := range structDef.Fields {
+					if field.JSONKey == fieldName {
+						_, exists := field.Tags["validate"]
+						assert.False(t, exists, "Field %s should not have validation tag", fieldName)
+						assert.NotContains(t, field.JSONTag, "validate:", "JSONTag for %s should not contain validation", fieldName)
+						break
+					}
+				}
+			}
 		})
 	}
 }

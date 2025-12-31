@@ -684,12 +684,22 @@ func (a *Analyzer) generateFieldTags(jsonKey string, fieldTypeInfo models.TypeIn
 	// Check for custom tag options and comments
 	if tagOption, found := a.config.FindTagOption(jsonKey); found {
 		if tagOption.Options != "" {
-			// Override JSON tag with custom options
-			tags["json"] = jsonKey + "," + tagOption.Options
+			if tagOption.Options == "-" {
+				// Exclude field from JSON serialization entirely
+				tags["json"] = "-"
+			} else {
+				// Override JSON tag with custom options
+				tags["json"] = jsonKey + "," + tagOption.Options
+			}
 		}
 		if tagOption.Comment != "" {
 			comment = tagOption.Comment
 		}
+	}
+
+	// Add validation tag if configured
+	if validationRule, found := a.config.FindValidationRule(jsonKey); found {
+		tags["validate"] = validationRule.Tag
 	}
 
 	// Build final tag string
@@ -704,6 +714,11 @@ func (a *Analyzer) generateFieldTags(jsonKey string, fieldTypeInfo models.TypeIn
 		if value, ok := tags[format]; ok {
 			tagParts = append(tagParts, fmt.Sprintf("%s:\"%s\"", format, value))
 		}
+	}
+
+	// Add validation tag if present (tag value already includes the full tag format)
+	if validateTag, ok := tags["validate"]; ok {
+		tagParts = append(tagParts, validateTag)
 	}
 
 	finalTag := "`" + strings.Join(tagParts, " ") + "`"

@@ -108,10 +108,18 @@ func (g *Generator) GenerateStructs(result models.AnalysisResult, packageName st
 		// Write fields
 		for _, field := range sortedFields {
 			typeStr := getTypeString(field.GoType)
-			buf.WriteString(fmt.Sprintf("\t%-*s %-*s %s\n",
-				maxNameWidth, field.GoName,
-				maxTypeWidth, typeStr,
-				field.JSONTag))
+			if field.Comment != "" {
+				buf.WriteString(fmt.Sprintf("\t%-*s %-*s %s // %s\n",
+					maxNameWidth, field.GoName,
+					maxTypeWidth, typeStr,
+					field.JSONTag,
+					field.Comment))
+			} else {
+				buf.WriteString(fmt.Sprintf("\t%-*s %-*s %s\n",
+					maxNameWidth, field.GoName,
+					maxTypeWidth, typeStr,
+					field.JSONTag))
+			}
 		}
 
 		buf.WriteString("}\n")
