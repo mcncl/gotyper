@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/mcncl/gotyper/internal/analyzer"
@@ -20,6 +22,7 @@ import (
 // CLI defines the command-line interface
 var CLI struct {
 	Input       string `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
+	URL         string `help:"URL to fetch JSON from. Supports http and https." short:"u"`
 	Output      string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
 	Package     string `help:"Package name for generated code." short:"p" default:"main"`
 	RootName    string `help:"Name for the root struct." short:"r" default:"RootType"`
@@ -165,11 +168,21 @@ func run(ctx *Context) error {
 	return writeOutput(code)
 }
 
-// parseInput reads JSON from file or stdin
+// parseInput reads JSON from file, URL, or stdin
 func parseInput() (models.IntermediateRepresentation, error) {
+	// Check for conflicting input sources
+	if CLI.Input != "" && CLI.URL != "" {
+		return models.IntermediateRepresentation{}, errors.NewInputError("cannot specify both --input and --url", nil)
+	}
+
 	if CLI.Input != "" {
 		// Parse from file
 		return parser.ParseFile(CLI.Input)
+	}
+
+	if CLI.URL != "" {
+		// Fetch and parse from URL
+		return fetchFromURL(CLI.URL)
 	}
 
 	// Check if stdin has data
@@ -251,4 +264,58 @@ func readInteractiveInput() (models.IntermediateRepresentation, error) {
 
 	fmt.Fprintln(os.Stderr, "\nProcessing JSON...")
 	return parser.ParseString(jsonData)
+}
+
+// fetchFromURL fetches JSON from a URL and parses it
+func fetchFromURL(urlStr string) (models.IntermediateRepresentation, error) {
+	// Validate URL scheme (case-insensitive)
+	lowerURL := strings.ToLower(urlStr)
+	if !strings.HasPrefix(lowerURL, "http://") && !strings.HasPrefix(lowerURL, "https://") {
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("invalid URL scheme: %s (must be http:// or https://)", urlStr), nil)
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create request
+	req, err := http.NewRequest(http.MethodGet, urlStr, nil)
+	if err != nil {
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("failed to create request for URL: %s", urlStr), err)
+	}
+
+	// Set headers to indicate we expect JSON
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "gotyper/"+Version)
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("failed to fetch URL: %s", urlStr), err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("HTTP request failed with status %d for URL: %s", resp.StatusCode, urlStr), nil)
+	}
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("failed to read response body from URL: %s", urlStr), err)
+	}
+
+	if len(body) == 0 {
+		return models.IntermediateRepresentation{}, errors.NewInputError(
+			fmt.Sprintf("empty response from URL: %s", urlStr), errors.ErrEmptyInput)
+	}
+
+	return parser.ParseString(string(body))
 }

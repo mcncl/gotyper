@@ -406,3 +406,75 @@ func TestRun_WithoutFormatting(t *testing.T) {
 	err = run(ctx)
 	require.NoError(t, err)
 }
+
+func TestParseInput_ConflictingInputAndURL(t *testing.T) {
+	// Save original CLI state
+	originalCLI := CLI
+	defer func() { CLI = originalCLI }()
+
+	// Set both input file and URL - should error
+	CLI.Input = "/some/file.json"
+	CLI.URL = "https://example.com/api"
+
+	_, err := parseInput()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot specify both --input and --url")
+}
+
+func TestParseInput_InvalidURLScheme(t *testing.T) {
+	// Save original CLI state
+	originalCLI := CLI
+	defer func() { CLI = originalCLI }()
+
+	// Clear input file
+	CLI.Input = ""
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"ftp scheme", "ftp://example.com/data.json"},
+		{"file scheme", "file:///path/to/file.json"},
+		{"no scheme", "example.com/api"},
+		{"invalid scheme", "notascheme://example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			CLI.URL = tt.url
+			_, err := parseInput()
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid URL scheme")
+		})
+	}
+}
+
+func TestParseInput_ValidURLSchemes(t *testing.T) {
+	// Save original CLI state
+	originalCLI := CLI
+	defer func() { CLI = originalCLI }()
+
+	// Clear input file
+	CLI.Input = ""
+
+	// Test that valid schemes pass URL validation (will fail on actual fetch)
+	// This tests the URL scheme validation, not the actual HTTP request
+	validSchemes := []string{
+		"http://example.com/api",
+		"https://example.com/api",
+		"HTTP://example.com/api",  // uppercase should work
+		"HTTPS://example.com/api", // uppercase should work
+	}
+
+	for _, url := range validSchemes {
+		t.Run(url, func(t *testing.T) {
+			CLI.URL = url
+			_, err := parseInput()
+			// The error should be about the request failing, NOT about invalid scheme
+			if err != nil {
+				assert.NotContains(t, err.Error(), "invalid URL scheme",
+					"URL %s should have valid scheme", url)
+			}
+		})
+	}
+}

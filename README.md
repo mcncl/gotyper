@@ -49,6 +49,9 @@ go install github.com/mcncl/gotyper@latest
 # From a file
 gotyper -i input.json -o output.go
 
+# From a URL (fetch JSON directly from an API)
+gotyper --url https://api.example.com/users/1 -r User
+
 # From stdin
 cat input.json | gotyper > output.go
 
@@ -61,6 +64,7 @@ gotyper
 
 ```
   -i, --input=STRING     Path to input JSON file. If not specified, reads from stdin.
+  -u, --url=STRING       URL to fetch JSON from. Supports http and https.
   -o, --output=STRING    Path to output Go file. If not specified, writes to stdout.
   -p, --package=STRING   Package name for generated code. (default: main)
   -r, --root-name=STRING Name for the root struct. (default: RootType)
@@ -594,6 +598,26 @@ dev:
 
 ## Advanced Usage
 
+### Fetching from URLs
+
+Fetch JSON directly from APIs without needing curl:
+
+```bash
+# Fetch from a REST API endpoint
+gotyper --url https://api.github.com/users/octocat -r GitHubUser -p github
+
+# Combine with config file for customization
+gotyper --url https://api.example.com/products -c .gotyper.yml -o models/product.go
+
+# The URL flag supports both http and https
+gotyper -u http://localhost:8080/api/data -r LocalData
+```
+
+Features:
+- 30-second timeout for requests
+- Sends `Accept: application/json` header
+- Proper error messages for HTTP errors
+
 ### Multi-Format Struct Generation
 
 Generate structs that work with multiple serialization formats:
@@ -608,7 +632,10 @@ json_tags:
     - "toml"
 EOF
 
-# Generate structs with multiple tag formats
+# Generate structs with multiple tag formats (using URL)
+gotyper --url https://api.example.com/data -p models
+
+# Or using curl pipe (traditional method)
 curl -s https://api.example.com/data | gotyper -p models
 ```
 
