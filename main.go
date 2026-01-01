@@ -17,12 +17,14 @@ import (
 	"github.com/mcncl/gotyper/internal/generator"
 	"github.com/mcncl/gotyper/internal/models"
 	"github.com/mcncl/gotyper/internal/parser"
+	"github.com/mcncl/gotyper/internal/schema"
 )
 
 // CLI defines the command-line interface
 var CLI struct {
 	Input       string `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
 	URL         string `help:"URL to fetch JSON from. Supports http and https." short:"u"`
+	Schema      string `help:"Path or URL to JSON Schema file. Generates structs from schema instead of sample JSON." short:"s"`
 	Output      string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
 	Package     string `help:"Package name for generated code." short:"p" default:"main"`
 	RootName    string `help:"Name for the root struct." short:"r" default:"RootType"`
@@ -41,7 +43,7 @@ type Context struct {
 
 // Version information
 const (
-	Version = "0.1.0"
+	Version = "dev"
 )
 
 func main() {
@@ -134,28 +136,38 @@ func createContext() (*Context, error) {
 
 // run executes the main program logic
 func run(ctx *Context) error {
-	// 1. Parse JSON input
-	ir, err := parseInput()
-	if err != nil {
-		// Error is already wrapped by parseInput
-		return err
+	var analysisResult models.AnalysisResult
+	var err error
+
+	// Check if using JSON Schema mode or JSON sample mode
+	if CLI.Schema != "" {
+		// Schema mode: parse and convert JSON Schema
+		analysisResult, err = parseSchema(ctx.Config.RootName)
+		if err != nil {
+			return err
+		}
+	} else {
+		// JSON sample mode: parse and analyze JSON
+		ir, err := parseInput()
+		if err != nil {
+			return err
+		}
+
+		analyzerInst := analyzer.NewAnalyzerWithConfig(ctx.Config)
+		analysisResult, err = analyzerInst.Analyze(ir, ctx.Config.RootName)
+		if err != nil {
+			return errors.NewAnalysisError("failed to analyze JSON structure", err)
+		}
 	}
 
-	// 2. Analyze JSON structure using configuration
-	analyzerInst := analyzer.NewAnalyzerWithConfig(ctx.Config)
-	analysisResult, err := analyzerInst.Analyze(ir, ctx.Config.RootName)
-	if err != nil {
-		return errors.NewAnalysisError("failed to analyze JSON structure", err)
-	}
-
-	// 3. Generate Go structs using configuration
+	// Generate Go structs
 	generatorInst := generator.NewGenerator()
 	code, err := generatorInst.GenerateStructs(analysisResult, ctx.Config.Package)
 	if err != nil {
 		return errors.NewGenerateError("failed to generate Go structs", err)
 	}
 
-	// 4. Format the code if requested and enabled in config
+	// Format the code if requested and enabled in config
 	if CLI.Format && ctx.Config.Formatting.Enabled {
 		formatterInst := formatter.NewFormatter()
 		code, err = formatterInst.Format(code)
@@ -164,8 +176,84 @@ func run(ctx *Context) error {
 		}
 	}
 
-	// 5. Output the result
+	// Output the result
 	return writeOutput(code)
+}
+
+// parseSchema reads and converts a JSON Schema from file or URL
+func parseSchema(rootName string) (models.AnalysisResult, error) {
+	// Check for conflicting input sources
+	if CLI.Input != "" || CLI.URL != "" {
+		return models.AnalysisResult{}, errors.NewInputError(
+			"cannot specify --schema with --input or --url", nil)
+	}
+
+	var s *schema.Schema
+	var err error
+
+	// Check if schema is a URL
+	schemaLower := strings.ToLower(CLI.Schema)
+	if strings.HasPrefix(schemaLower, "http://") || strings.HasPrefix(schemaLower, "https://") {
+		// Fetch schema from URL
+		s, err = fetchSchemaFromURL(CLI.Schema)
+		if err != nil {
+			return models.AnalysisResult{}, err
+		}
+	} else {
+		// Parse from file
+		s, err = schema.ParseFile(CLI.Schema)
+		if err != nil {
+			return models.AnalysisResult{}, errors.NewInputError(
+				fmt.Sprintf("failed to parse schema file: %s", CLI.Schema), err)
+		}
+	}
+
+	// Convert schema to analysis result
+	converter := schema.NewConverter(s)
+	result, err := converter.Convert(rootName)
+	if err != nil {
+		return models.AnalysisResult{}, errors.NewAnalysisError(
+			"failed to convert JSON Schema", err)
+	}
+
+	return result, nil
+}
+
+// fetchSchemaFromURL fetches a JSON Schema from a URL
+func fetchSchemaFromURL(url string) (*schema.Schema, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, errors.NewInputError(fmt.Sprintf("invalid schema URL: %s", url), err)
+	}
+
+	req.Header.Set("Accept", "application/json, application/schema+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.NewInputError(fmt.Sprintf("failed to fetch schema from URL: %s", url), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.NewInputError(
+			fmt.Sprintf("HTTP %d fetching schema from %s", resp.StatusCode, url), nil)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.NewInputError("failed to read schema response", err)
+	}
+
+	s, err := schema.ParseBytes(data)
+	if err != nil {
+		return nil, errors.NewInputError("failed to parse JSON Schema from URL", err)
+	}
+
+	return s, nil
 }
 
 // parseInput reads JSON from file, URL, or stdin
