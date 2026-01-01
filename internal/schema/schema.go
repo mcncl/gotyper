@@ -93,18 +93,18 @@ type Schema struct {
 	Type SchemaType `json:"type,omitempty"`
 
 	// Object properties
-	Properties           map[string]*Schema      `json:"properties,omitempty"`
-	Required             []string                `json:"required,omitempty"`
-	AdditionalProperties *AdditionalProperties   `json:"additionalProperties,omitempty"`
+	Properties           map[string]*Schema    `json:"properties,omitempty"`
+	Required             []string              `json:"required,omitempty"`
+	AdditionalProperties *AdditionalProperties `json:"additionalProperties,omitempty"`
 
 	// Array items
 	Items *Schema `json:"items,omitempty"`
 
 	// String constraints
-	MinLength *int    `json:"minLength,omitempty"`
-	MaxLength *int    `json:"maxLength,omitempty"`
-	Pattern   string  `json:"pattern,omitempty"`
-	Format    string  `json:"format,omitempty"`
+	MinLength *int   `json:"minLength,omitempty"`
+	MaxLength *int   `json:"maxLength,omitempty"`
+	Pattern   string `json:"pattern,omitempty"`
+	Format    string `json:"format,omitempty"`
 
 	// Numeric constraints
 	Minimum          *float64 `json:"minimum,omitempty"`
@@ -170,8 +170,8 @@ type Converter struct {
 	schema       *Schema
 	structs      []models.StructDef
 	imports      map[string]struct{}
-	structNames  map[string]int            // Track used names to avoid collisions
-	definitions  map[string]*Schema        // Merged definitions for $ref resolution
+	structNames  map[string]int             // Track used names to avoid collisions
+	definitions  map[string]*Schema         // Merged definitions for $ref resolution
 	resolvedRefs map[string]models.TypeInfo // Cache for already resolved $refs
 }
 
