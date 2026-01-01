@@ -65,6 +65,7 @@ gotyper
 ```
   -i, --input=STRING     Path to input JSON file. If not specified, reads from stdin.
   -u, --url=STRING       URL to fetch JSON from. Supports http and https.
+  -s, --schema=STRING    Path or URL to JSON Schema file. Generates structs from schema instead of sample JSON.
   -o, --output=STRING    Path to output Go file. If not specified, writes to stdout.
   -p, --package=STRING   Package name for generated code. (default: main)
   -r, --root-name=STRING Name for the root struct. (default: RootType)
@@ -617,6 +618,104 @@ Features:
 - 30-second timeout for requests
 - Sends `Accept: application/json` header
 - Proper error messages for HTTP errors
+
+### JSON Schema Support
+
+Generate Go structs directly from JSON Schema files or URLs instead of sample JSON data. This provides more precise type definitions, including validation constraints and proper handling of required vs optional fields.
+
+```bash
+# Generate structs from a local JSON Schema file
+gotyper --schema user.schema.json -r User -p models
+
+# Generate structs from a remote JSON Schema URL
+gotyper --schema https://example.com/api/schema.json -r Response -p api
+
+# Real-world example: Buildkite pipeline schema
+gotyper -s https://raw.githubusercontent.com/buildkite/pipeline-schema/main/schema.json -r Pipeline
+
+# Output to a file
+gotyper -s api.schema.json -o models/api.go -p models
+```
+
+**Example JSON Schema (`user.schema.json`):**
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "User",
+  "type": "object",
+  "required": ["id", "email"],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Unique user identifier",
+      "minimum": 1
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "User's email address"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
+```
+
+**Generated Go Code:**
+```go
+package models
+
+import (
+	"time"
+)
+
+type User struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Email     string     `json:"email" validate:"required,email"`         // User's email address
+	Id        int64      `json:"id" validate:"required,min=1"`            // Unique user identifier
+	Name      *string    `json:"name,omitempty" validate:"min=1,max=100"` // Display name
+}
+```
+
+**Schema Features Supported:**
+- **Types**: object, array, string, integer, number, boolean, null
+- **Formats**: date-time, date, time, email, uuid, uri (converted to appropriate Go types)
+- **Required fields**: Non-required fields become pointers with `omitempty`
+- **Constraints**: min/max, minLength/maxLength generate validation tags
+- **$ref resolution**: Supports `#/definitions/` and `#/$defs/` references
+- **allOf**: Merges schemas for composition
+- **Descriptions**: Converted to inline comments
+
+**Schema with $ref Example:**
+```json
+{
+  "type": "object",
+  "definitions": {
+    "Address": {
+      "type": "object",
+      "required": ["city"],
+      "properties": {
+        "street": {"type": "string"},
+        "city": {"type": "string"}
+      }
+    }
+  },
+  "properties": {
+    "home_address": {"$ref": "#/definitions/Address"},
+    "work_address": {"$ref": "#/definitions/Address"}
+  }
+}
+```
+
+This generates separate `Address` struct that's reused (not duplicated).
 
 ### Multi-Format Struct Generation
 
