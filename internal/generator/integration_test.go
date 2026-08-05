@@ -87,6 +87,21 @@ func TestIntegration_ArrayOfObjects(t *testing.T) {
 	assert.Contains(t, generatedCode, "// type Products []Product")
 }
 
+func TestIntegration_NestedArraysPreserveDimensions(t *testing.T) {
+	ir, err := parser.ParseString(`{"matrix":[[1,2],[3,4]]}`)
+	require.NoError(t, err)
+
+	anlzr := analyzer.NewAnalyzer()
+	analysisResult, err := anlzr.Analyze(ir, "RootType")
+	require.NoError(t, err)
+
+	gen := NewGenerator()
+	generatedCode, err := gen.GenerateStructs(analysisResult, "main")
+	require.NoError(t, err)
+
+	assert.Contains(t, generatedCode, "Matrix *[][]int64")
+}
+
 func TestIntegration_ValidationTagsAndComments(t *testing.T) {
 	// Test the full pipeline with validation tags and comments
 	configYAML := `

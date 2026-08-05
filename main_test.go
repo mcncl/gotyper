@@ -267,13 +267,23 @@ func TestWriteOutput_FileError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Note: TestReadInteractiveInput is challenging to test reliably due to
-// stdin/EOF handling complexities, so we focus on testing other components
-func TestReadInteractiveInput_Concept(t *testing.T) {
-	// This test documents the interactive input function exists and is testable
-	// In practice, interactive input is tested manually
-	// The function signature and basic error handling are covered by integration tests
-	assert.NotNil(t, readInteractiveInput)
+func TestReadInteractiveInput_PreservesFinalLineWithoutNewline(t *testing.T) {
+	originalStdin := os.Stdin
+	defer func() { os.Stdin = originalStdin }()
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
+
+	_, err = w.WriteString(`{"name":"Jane"}`)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	os.Stdin = r
+
+	ir, err := readInteractiveInput()
+	require.NoError(t, err)
+	assert.NotNil(t, ir.Root)
+	assert.False(t, ir.RootIsArray)
 }
 
 // Integration test that tests the full pipeline
