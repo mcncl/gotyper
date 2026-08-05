@@ -51,6 +51,8 @@ jobs:
         run: go mod verify
 
       - name: Run tests
+        env:
+          CGO_ENABLED: "1"
         run: go test -race -coverprofile=coverage.out ./...
 
       - name: Check formatting

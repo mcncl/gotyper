@@ -565,14 +565,16 @@ func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName strin
 		}
 
 		if allSlices {
-			// Use the first element's slice element type
-			innerType := elementInfos[0].SliceElementType
-			if innerType != nil {
+			// Preserve the inner slice so the generated type retains every dimension.
+			innerSliceType := elementInfos[0]
+			if innerSliceType.SliceElementType != nil {
+				// A nested slice is an element here, not an optional struct field.
+				innerSliceType.IsPointer = false
 				// Create a multi-dimensional slice type
 				return models.TypeInfo{
 					Kind:             models.Slice,
 					Name:             "[]" + elementInfos[0].Name,
-					SliceElementType: innerType,
+					SliceElementType: &innerSliceType,
 					IsPointer:        true,
 				}, nil
 			}

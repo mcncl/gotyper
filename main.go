@@ -335,6 +335,7 @@ func readInteractiveInput() (models.IntermediateRepresentation, error) {
 
 	for {
 		line, err := reader.ReadString('\n')
+		jsonBuilder.WriteString(line)
 		if err == io.EOF {
 			// End of input
 			break
@@ -342,7 +343,6 @@ func readInteractiveInput() (models.IntermediateRepresentation, error) {
 		if err != nil {
 			return models.IntermediateRepresentation{}, errors.NewInputError("error reading input", err)
 		}
-		jsonBuilder.WriteString(line)
 	}
 
 	jsonData := jsonBuilder.String()
