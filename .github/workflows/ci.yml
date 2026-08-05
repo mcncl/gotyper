@@ -2,93 +2,120 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
-  GO_VERSION: '1.25'
+  GO_VERSION: "1.25"
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v7
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+          token: ""
 
-    - name: Cache Go modules
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
+      - name: Compute Go cache key
+        id: go-cache-key
+        shell: bash
+        run: |
+          go_sum_digest="$(sha256sum go.sum | cut -d' ' -f1)"
+          echo "key=Linux-go-${GO_VERSION}-${go_sum_digest}" >> "$GITHUB_OUTPUT"
 
-    - name: Download dependencies
-      run: go mod download
+      - name: Restore Go cache
+        id: go-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache-key.outputs.key }}
+          restore-keys: |
+            Linux-go-1.25-
+            Linux-go-
 
-    - name: Verify dependencies
-      run: go mod verify
+      - name: Download dependencies
+        run: go mod download
 
-    - name: Run tests
-      run: go test -race -coverprofile=coverage.out ./...
+      - name: Verify dependencies
+        run: go mod verify
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v7
-      with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false  # Don't fail CI if codecov fails
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Run tests
+        run: go test -race -coverprofile=coverage.out ./...
 
-    - name: Check formatting
-      run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "The following files are not formatted properly:"
-          gofmt -s -l .
-          exit 1
-        fi
+      - name: Check formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -s -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted properly:"
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
 
-    - name: Run go vet
-      run: go vet ./...
+      - name: Run go vet
+        run: go vet ./...
 
-    - name: Run staticcheck (if available)
-      run: |
-        go install honnef.co/go/tools/cmd/staticcheck@latest
-        staticcheck ./...
+      - name: Run staticcheck
+        shell: bash
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          "$(go env GOPATH)/bin/staticcheck" ./...
 
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: test
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v7
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+          token: ""
 
-    - name: Build binary
-      run: |
-        go build -ldflags="-s -w" -o gotyper .
-        ./gotyper --help  # Quick smoke test
+      - name: Compute Go cache key
+        id: go-cache-key
+        shell: bash
+        run: |
+          go_sum_digest="$(sha256sum go.sum | cut -d' ' -f1)"
+          echo "key=Linux-go-${GO_VERSION}-${go_sum_digest}" >> "$GITHUB_OUTPUT"
 
-    - name: Test cross-compilation
-      run: |
-        GOOS=linux GOARCH=amd64 go build -o /dev/null .
-        GOOS=darwin GOARCH=amd64 go build -o /dev/null .
-        GOOS=windows GOARCH=amd64 go build -o /dev/null .
+      - name: Restore Go cache
+        id: go-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache-key.outputs.key }}
+          restore-keys: |
+            Linux-go-1.25-
+            Linux-go-
+
+      - name: Build binary
+        shell: bash
+        run: |
+          go build -ldflags="-s -w" -o gotyper .
+          ./gotyper --help
+
+      - name: Test cross-compilation
+        shell: bash
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o /dev/null .
+          GOOS=darwin GOARCH=amd64 go build -o /dev/null .
+          GOOS=windows GOARCH=amd64 go build -o /dev/null .
