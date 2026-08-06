@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Comment on this pull request
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -19,12 +20,18 @@ jobs:
           test -n "$GH_TOKEN"
           test -z "${GITHUB_TOKEN+x}"
 
-          pr_number="$(
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
-              --jq '.[0].number'
-          )"
-          test -n "$pr_number"
+          case "$GITHUB_REF" in
+            refs/pull/*/merge|refs/pull/*/head)
+              pr_ref="${GITHUB_REF#refs/pull/}"
+              pr_number="${pr_ref%%/*}"
+              ;;
+            *)
+              echo "Unexpected pull request ref: $GITHUB_REF" >&2
+              exit 1
+              ;;
+          esac
+
+          [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]
 
           gh pr comment "$pr_number" \
             --repo "$GITHUB_REPOSITORY" \
