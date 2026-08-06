@@ -1,0 +1,31 @@
+name: Scoped GitHub token proof
+
+on:
+  pull_request:
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on this pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          test -n "$GH_TOKEN"
+          test -z "${GITHUB_TOKEN+x}"
+
+          pr_number="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              --jq '.[0].number'
+          )"
+          test -n "$pr_number"
+
+          gh pr comment "$pr_number" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "buildkite-gha scoped GitHub token proof passed"
