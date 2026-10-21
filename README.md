@@ -655,9 +655,6 @@ gotyper --schema user.schema.json -r User -p models
 # Generate structs from a remote JSON Schema URL
 gotyper --schema https://example.com/api/schema.json -r Response -p api
 
-# Real-world example: Buildkite pipeline schema
-gotyper -s https://raw.githubusercontent.com/buildkite/pipeline-schema/main/schema.json -r Pipeline
-
 # Output to a file
 gotyper -s api.schema.json -o models/api.go -p models
 ```
@@ -714,10 +711,58 @@ type User struct {
 - **Types**: object, array, string, integer, number, boolean, null
 - **Formats**: date-time, date, time, email, uuid, uri (converted to appropriate Go types)
 - **Required fields**: Non-required fields become pointers with `omitempty`
-- **Constraints**: min/max, minLength/maxLength generate validation tags
-- **$ref resolution**: Supports `#/definitions/` and `#/$defs/` references
-- **allOf**: Merges schemas for composition
+- **Typed maps**: Objects without fixed properties become `map[string]T`, where
+  `additionalProperties` supplies `T`. Values can be primitives, objects, arrays,
+  maps, or local references. Without a value schema, `T` is `interface{}`.
+  Root maps receive an alias with the requested type name.
+- **Constraints**: `minimum`/`maximum`, `minLength`/`maxLength`, and
+  `minItems`/`maxItems` on direct properties generate validation tags
+- **$ref resolution**: Supports `#`, `#/definitions/Name`, and `#/$defs/Name`.
+  The definition namespaces stay separate. Names support JSON Pointer `~0`
+  and `~1` escapes. Repeated object references reuse one generated type.
+  Self and mutual object references use pointers where needed to break cycles.
+- **allOf**: Merges object properties and required lists, including nested
+  `allOf`, local references, and sibling properties. Duplicate properties must
+  have identical schemas; conflicting intersections return an error.
 - **Descriptions**: Converted to inline comments
+
+**Schema boundaries and diagnostics:**
+
+Schema mode implements a subset of draft-07, 2019-09, and 2020-12, not a schema
+validator. `$schema` may be omitted or name one of those standard dialects.
+Other dialects return an error. Both definition spellings are accepted in this
+subset. `title`, `description`, `$comment`, `default`, and `examples` are
+annotations; defaults are not applied. A root `$id` is metadata only.
+
+Unsupported keywords return an error with the schema location, including in
+unused definitions. This includes `enum`, `const`, `oneOf`, `anyOf`, `not`,
+conditional schemas, `patternProperties`, `pattern`, `multipleOf`, exclusive
+bounds, `uniqueItems`, and unknown formats. Enum and union generation are not
+implemented. A type array may contain one non-null type plus `null`.
+
+References stay within the current document's root or top-level definitions.
+External files/URLs, anchors, arbitrary nested pointers, and nested `$id` scopes
+are not supported. Semantic siblings of `$ref` return an error rather than
+being ignored. Cycles through reference aliases, maps, or arrays without a
+reusable object type return a supported-limit error. Generated Go identifiers
+must be valid and field names must not collide after conversion.
+
+Objects with fixed properties generate structs. As with ordinary Go JSON
+decoding, unspecified extra properties are not retained. Explicit
+`additionalProperties` alongside fixed properties, and `additionalProperties:
+false`, return errors because their meaning cannot be preserved by these
+structs. Boolean schemas and tuple arrays are not supported. `allOf` only
+supports object-property merging, not map intersections or scalar constraints.
+An `allOf` merge with no resulting properties returns an error.
+
+Validation tags are metadata for a separate validator; `encoding/json` does not
+enforce required fields, bounds, lengths, formats, or unknown-field rejection.
+Supported bounds and lengths must appear directly on a property with the
+matching explicit type. They return an error on roots, definition targets,
+array items, and map values rather than losing their tags. Email and URI/URL
+formats also require direct properties. UUID remains a string. Date and time
+formats retain the existing `time.Time` mapping; standard JSON decoding of
+`time.Time` requires RFC3339 timestamps, not date-only or time-only values.
 
 **Schema with $ref Example:**
 ```json

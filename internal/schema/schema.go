@@ -4,7 +4,9 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"go/token"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -138,6 +140,19 @@ type Schema struct {
 
 	// Examples
 	Examples []interface{} `json:"examples,omitempty"`
+	keywords map[string]interface{}
+}
+
+// UnmarshalJSON retains keyword names so unsupported constructs are not discarded.
+func (s *Schema) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '{' {
+		return fmt.Errorf("unsupported schema: expected an object (boolean schemas are not supported)")
+	}
+	type plain Schema
+	if err := json.Unmarshal(data, (*plain)(s)); err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &s.keywords)
 }
 
 // ParseFile reads and parses a JSON Schema from a file
@@ -167,37 +182,33 @@ func ParseString(s string) (*Schema, error) {
 
 // Converter converts JSON Schema to Go struct definitions
 type Converter struct {
-	schema       *Schema
-	structs      []models.StructDef
-	imports      map[string]struct{}
-	structNames  map[string]int             // Track used names to avoid collisions
-	definitions  map[string]*Schema         // Merged definitions for $ref resolution
-	resolvedRefs map[string]models.TypeInfo // Cache for already resolved $refs
+	schema      *Schema
+	structs     []models.StructDef
+	imports     map[string]struct{}
+	structNames map[string]int // Track used names to avoid collisions
+	converted   map[*Schema]models.TypeInfo
+	active      map[*Schema]bool
+	revisiting  map[*Schema]bool
 }
 
 // NewConverter creates a new schema converter
 func NewConverter(schema *Schema) *Converter {
-	// Merge definitions and $defs
-	definitions := make(map[string]*Schema)
-	for k, v := range schema.Definitions {
-		definitions[k] = v
-	}
-	for k, v := range schema.Defs {
-		definitions[k] = v
-	}
-
 	return &Converter{
-		schema:       schema,
-		structs:      make([]models.StructDef, 0),
-		imports:      make(map[string]struct{}),
-		structNames:  make(map[string]int),
-		definitions:  definitions,
-		resolvedRefs: make(map[string]models.TypeInfo),
+		schema:      schema,
+		structs:     make([]models.StructDef, 0),
+		imports:     make(map[string]struct{}),
+		structNames: make(map[string]int),
+		converted:   make(map[*Schema]models.TypeInfo),
+		active:      make(map[*Schema]bool),
+		revisiting:  make(map[*Schema]bool),
 	}
 }
 
 // Convert processes the schema and returns analysis results
 func (c *Converter) Convert(rootName string) (models.AnalysisResult, error) {
+	if err := validateSchema(c.schema, "#", false); err != nil {
+		return models.AnalysisResult{}, err
+	}
 	if rootName == "" {
 		rootName = c.schema.Title
 		if rootName == "" {
@@ -207,11 +218,19 @@ func (c *Converter) Convert(rootName string) (models.AnalysisResult, error) {
 
 	// Clean up the root name
 	rootName = toPascalCase(rootName)
+	if !token.IsIdentifier(rootName) {
+		return models.AnalysisResult{}, fmt.Errorf("unsupported Go type name %q", rootName)
+	}
+	c.generateUniqueName(rootName) // Reserve the root declaration before its dependencies.
 
 	// Convert the root schema
-	_, err := c.convertSchema(c.schema, rootName, true)
+	typeInfo, err := c.convertSchema(c.schema, rootName, true)
 	if err != nil {
 		return models.AnalysisResult{}, fmt.Errorf("failed to convert schema: %w", err)
+	}
+	if typeInfo.Kind != models.Struct || typeInfo.StructName != rootName {
+		typeInfo.IsPointer = false
+		c.structs = append(c.structs, models.StructDef{Name: rootName, IsRoot: true, Type: &typeInfo})
 	}
 
 	return models.AnalysisResult{
@@ -221,23 +240,58 @@ func (c *Converter) Convert(rootName string) (models.AnalysisResult, error) {
 }
 
 // convertSchema recursively converts a schema to Go types
-func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot bool) (models.TypeInfo, error) {
+func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot bool) (result models.TypeInfo, err error) {
+	defer func() {
+		if schema.Nullable || schema.Type.IsNullable() {
+			result.IsPointer = true
+		}
+	}()
+	if cached, ok := c.converted[schema]; ok {
+		if c.active[schema] {
+			cached.IsPointer = true
+		}
+		return cached, nil
+	}
+	if c.active[schema] {
+		// Re-expand aliases and containers once to reach an object registered
+		// since their first visit. A second revisit has no object to terminate it.
+		if c.revisiting[schema] {
+			return models.TypeInfo{}, fmt.Errorf("unsupported reference cycle without an object type at %s", suggestedName)
+		}
+		c.revisiting[schema] = true
+		defer delete(c.revisiting, schema)
+	} else {
+		c.active[schema] = true
+		defer delete(c.active, schema)
+	}
+
 	// Handle $ref
 	if schema.Ref != "" {
-		return c.resolveRef(schema.Ref, suggestedName)
+		target, name, err := c.refSchema(schema.Ref)
+		if err != nil {
+			return models.TypeInfo{}, err
+		}
+		return c.convertSchema(target, name, false)
 	}
 
 	// Handle allOf by merging schemas
 	if len(schema.AllOf) > 0 {
-		merged := c.mergeAllOf(schema.AllOf)
-		return c.convertSchema(merged, suggestedName, isRoot)
+		merged, err := c.mergeAllOf(schema, make(map[*Schema]bool))
+		if err != nil {
+			return models.TypeInfo{}, err
+		}
+		if len(merged.Properties) == 0 {
+			return models.TypeInfo{}, fmt.Errorf("unsupported allOf without object properties")
+		}
+		// Keep the original identity for references back to this object.
+		return c.convertObject(merged, suggestedName, isRoot, schema)
 	}
 
 	// Determine type - get primary type from potentially multi-type schema
 	schemaType := schema.Type.Primary()
 	if schemaType == "" {
 		// Infer type from properties
-		if len(schema.Properties) > 0 {
+		if schema.Properties != nil || schema.AdditionalProperties != nil || len(schema.Required) > 0 {
 			schemaType = "object"
 		} else if schema.Items != nil {
 			schemaType = "array"
@@ -256,7 +310,21 @@ func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot b
 
 	switch schemaType {
 	case "object":
-		return c.convertObject(schema, suggestedName, isRoot)
+		if len(schema.Properties) == 0 {
+			if len(schema.Required) > 0 {
+				return models.TypeInfo{}, fmt.Errorf("unsupported required properties without property schemas")
+			}
+			value := models.TypeInfo{Kind: models.Interface, Name: "interface{}"}
+			if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
+				var err error
+				value, err = c.convertSchema(schema.AdditionalProperties.Schema, suggestedName+"Value", false)
+				if err != nil {
+					return models.TypeInfo{}, fmt.Errorf("additionalProperties: %w", err)
+				}
+			}
+			return models.TypeInfo{Kind: models.Map, Name: "map[string]" + value.Name, MapValueType: &value}, nil
+		}
+		return c.convertObject(schema, suggestedName, isRoot, schema)
 	case "array":
 		return c.convertArray(schema, suggestedName)
 	case "string":
@@ -276,9 +344,21 @@ func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot b
 }
 
 // convertObject converts an object schema to a Go struct
-func (c *Converter) convertObject(schema *Schema, structName string, isRoot bool) (models.TypeInfo, error) {
+func (c *Converter) convertObject(schema *Schema, structName string, isRoot bool, identity *Schema) (models.TypeInfo, error) {
 	// Generate unique struct name
-	finalName := c.generateUniqueName(structName)
+	finalName := structName
+	if !token.IsIdentifier(finalName) {
+		return models.TypeInfo{}, fmt.Errorf("unsupported Go type name %q", finalName)
+	}
+	if !isRoot {
+		finalName = c.generateUniqueName(structName)
+	}
+	c.converted[identity] = models.TypeInfo{Kind: models.Struct, Name: finalName, StructName: finalName}
+	for _, name := range schema.Required {
+		if _, ok := schema.Properties[name]; !ok {
+			return models.TypeInfo{}, fmt.Errorf("unsupported required property %q without a property schema", name)
+		}
+	}
 
 	// Build required field set
 	requiredSet := make(map[string]bool)
@@ -295,12 +375,17 @@ func (c *Converter) convertObject(schema *Schema, structName string, isRoot bool
 		propNames = append(propNames, name)
 	}
 	sort.Strings(propNames)
+	fieldNames := make(map[string]bool)
 
 	for _, propName := range propNames {
 		propSchema := schema.Properties[propName]
 
 		// Generate field name
 		goFieldName := toPascalCase(propName)
+		if !token.IsIdentifier(goFieldName) || fieldNames[goFieldName] {
+			return models.TypeInfo{}, fmt.Errorf("unsupported or conflicting Go field name %q for property %q", goFieldName, propName)
+		}
+		fieldNames[goFieldName] = true
 
 		// Convert property schema to type
 		nestedName := finalName + goFieldName
@@ -403,87 +488,73 @@ func (c *Converter) convertNumber(schema *Schema) models.TypeInfo {
 	return models.TypeInfo{Kind: models.Float, Name: "float64"}
 }
 
-// resolveRef resolves a $ref to its schema
-func (c *Converter) resolveRef(ref string, suggestedName string) (models.TypeInfo, error) {
-	// Check cache first to avoid duplicate struct generation
-	if cached, ok := c.resolvedRefs[ref]; ok {
-		return cached, nil
+// refSchema resolves root and top-level definition pointers without merging namespaces.
+func (c *Converter) refSchema(ref string) (*Schema, string, error) {
+	if ref == "#" {
+		return c.schema, "RootType", nil
 	}
-
-	// Handle local references like "#/definitions/User" or "#/$defs/User"
-	if strings.HasPrefix(ref, "#/definitions/") {
-		defName := strings.TrimPrefix(ref, "#/definitions/")
-		if defSchema, ok := c.definitions[defName]; ok {
-			typeInfo, err := c.convertSchema(defSchema, toPascalCase(defName), false)
-			if err != nil {
-				return models.TypeInfo{}, err
-			}
-			c.resolvedRefs[ref] = typeInfo // Cache the result
-			return typeInfo, nil
+	if !strings.HasPrefix(ref, "#") {
+		return nil, "", fmt.Errorf("external $ref not supported: %s", ref)
+	}
+	parts := strings.Split(ref, "/")
+	if len(parts) != 3 || parts[0] != "#" || (parts[1] != "definitions" && parts[1] != "$defs") {
+		return nil, "", fmt.Errorf("unsupported local $ref scope: %s", ref)
+	}
+	name := parts[2]
+	for i := 0; i < len(name); i++ {
+		if name[i] == '~' && (i+1 == len(name) || (name[i+1] != '0' && name[i+1] != '1')) {
+			return nil, "", fmt.Errorf("invalid JSON pointer in $ref: %s", ref)
 		}
-		return models.TypeInfo{}, fmt.Errorf("unresolved $ref: %s", ref)
-	}
-
-	if strings.HasPrefix(ref, "#/$defs/") {
-		defName := strings.TrimPrefix(ref, "#/$defs/")
-		if defSchema, ok := c.definitions[defName]; ok {
-			typeInfo, err := c.convertSchema(defSchema, toPascalCase(defName), false)
-			if err != nil {
-				return models.TypeInfo{}, err
-			}
-			c.resolvedRefs[ref] = typeInfo // Cache the result
-			return typeInfo, nil
+		if name[i] == '~' {
+			i++
 		}
-		return models.TypeInfo{}, fmt.Errorf("unresolved $ref: %s", ref)
 	}
-
-	// External refs not supported yet
-	return models.TypeInfo{}, fmt.Errorf("external $ref not supported: %s", ref)
+	name = strings.ReplaceAll(strings.ReplaceAll(name, "~1", "/"), "~0", "~")
+	definitions := c.schema.Definitions
+	if parts[1] == "$defs" {
+		definitions = c.schema.Defs
+	}
+	if target := definitions[name]; target != nil {
+		return target, toPascalCase(name), nil
+	}
+	return nil, "", fmt.Errorf("unresolved $ref: %s", ref)
 }
 
-// mergeAllOf merges multiple schemas from allOf
-func (c *Converter) mergeAllOf(schemas []*Schema) *Schema {
-	merged := &Schema{
-		Properties: make(map[string]*Schema),
-		Required:   make([]string, 0),
+// mergeAllOf supports object intersections with disjoint or identical properties.
+func (c *Converter) mergeAllOf(s *Schema, active map[*Schema]bool) (*Schema, error) {
+	if active[s] {
+		return nil, fmt.Errorf("unsupported allOf reference cycle")
 	}
-
-	for _, s := range schemas {
-		// Resolve refs first
-		resolved := s
-		if s.Ref != "" {
-			if strings.HasPrefix(s.Ref, "#/definitions/") {
-				defName := strings.TrimPrefix(s.Ref, "#/definitions/")
-				if defSchema, ok := c.definitions[defName]; ok {
-					resolved = defSchema
-				}
-			} else if strings.HasPrefix(s.Ref, "#/$defs/") {
-				defName := strings.TrimPrefix(s.Ref, "#/$defs/")
-				if defSchema, ok := c.definitions[defName]; ok {
-					resolved = defSchema
-				}
-			}
+	active[s] = true
+	defer delete(active, s)
+	if s.Ref != "" {
+		target, _, err := c.refSchema(s.Ref)
+		if err != nil {
+			return nil, err
 		}
-
-		// Merge properties
+		return c.mergeAllOf(target, active)
+	}
+	if (s.Type.Primary() != "" && s.Type.Primary() != "object") || s.Items != nil || s.AdditionalProperties != nil || s.Nullable || s.Type.IsNullable() {
+		return nil, fmt.Errorf("unsupported allOf: only object properties and required fields can be merged")
+	}
+	merged := &Schema{Type: SchemaType{Types: []string{"object"}}, Properties: make(map[string]*Schema), Required: append([]string{}, s.Required...)}
+	for k, v := range s.Properties {
+		merged.Properties[k] = v
+	}
+	for _, branch := range s.AllOf {
+		resolved, err := c.mergeAllOf(branch, active)
+		if err != nil {
+			return nil, err
+		}
 		for k, v := range resolved.Properties {
+			if previous, ok := merged.Properties[k]; ok && !reflect.DeepEqual(previous, v) {
+				return nil, fmt.Errorf("unsupported conflicting allOf property %q", k)
+			}
 			merged.Properties[k] = v
 		}
-
-		// Merge required
 		merged.Required = append(merged.Required, resolved.Required...)
-
-		// Take first non-empty title/description
-		if merged.Title == "" && resolved.Title != "" {
-			merged.Title = resolved.Title
-		}
-		if merged.Description == "" && resolved.Description != "" {
-			merged.Description = resolved.Description
-		}
 	}
-
-	merged.Type = SchemaType{Types: []string{"object"}}
-	return merged
+	return merged, nil
 }
 
 // generateFieldTags creates tags for a field based on schema
@@ -557,11 +628,10 @@ func (c *Converter) generateFieldTags(jsonKey string, schema *Schema, typeInfo m
 // generateUniqueName ensures struct names are unique
 func (c *Converter) generateUniqueName(baseName string) string {
 	name := baseName
-	count := c.structNames[baseName]
-	if count > 0 {
+	for count := 1; c.structNames[name] > 0; count++ {
 		name = fmt.Sprintf("%s%d", baseName, count)
 	}
-	c.structNames[baseName] = count + 1
+	c.structNames[name] = 1
 	return name
 }
 
