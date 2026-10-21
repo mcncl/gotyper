@@ -17,9 +17,9 @@ builds:
     goos: [darwin]
     goarch: [amd64, arm64]
     binary: gotyper
-    main: ./cmd/gotyper
+    main: .
     ldflags:
-      - -s -w -X github.com/mcncl/gotyper/internal/version.Version={{.Version}}
+      - -s -w -X main.Version={{.Tag}}
 
   - id: linux
     goos: [linux]
@@ -27,48 +27,48 @@ builds:
     env:
       - CGO_ENABLED=0
     binary: gotyper
-    main: ./cmd/gotyper
+    main: .
     ldflags:
-      - -s -w -X github.com/mcncl/gotyper/internal/version.Version={{.Version}}
+      - -s -w -X main.Version={{.Tag}}
 
   - id: windows
     goos: [windows]
     goarch: [amd64, arm64]
     binary: gotyper
-    main: ./cmd/gotyper
+    main: .
     ldflags:
-      - -s -w -X github.com/mcncl/gotyper/internal/version.Version={{.Version}}
+      - -s -w -X main.Version={{.Tag}}
 
 archives:
   - id: macos-archive
-    builds: [macos]
+    ids: [macos]
     name_template: "gotyper_{{ .Version }}_macOS_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     wrap_in_directory: true
-    format: zip
+    formats: [zip]
     files:
-      - LICENSE.md
+      - LICENSE
       - README.md
 
   - id: linux-archive
-    builds: [linux]
+    ids: [linux]
     name_template: "gotyper_{{ .Version }}_linux_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     wrap_in_directory: true
-    format: tar.gz
+    formats: [tar.gz]
     files:
-      - LICENSE.md
+      - LICENSE
       - README.md
 
   - id: windows-archive
-    builds: [windows]
+    ids: [windows]
     name_template: "gotyper_{{ .Version }}_windows_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     wrap_in_directory: false
-    format: zip
+    formats: [zip]
     files:
-      - LICENSE.md
+      - LICENSE
       - README.md
 
 nfpms:
-  - builds:
+  - ids:
       - linux
     vendor: Gotyper
     homepage: https://github.com/mcncl/gotyper
