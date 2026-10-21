@@ -29,6 +29,7 @@ const (
 	// Complex types
 	Struct GoTypeKind = "struct"
 	Slice  GoTypeKind = "slice"
+	Map    GoTypeKind = "map"
 
 	// Special string types
 	Time GoTypeKind = "time.Time" // Will require import "time"
@@ -42,6 +43,7 @@ type TypeInfo struct {
 	IsPointer        bool       `json:"is_pointer,omitempty"`         // True if the type should be a pointer (e.g., for nullable fields)
 	StructName       string     `json:"struct_name,omitempty"`        // If Kind is Struct, this is the name of the defined struct.
 	SliceElementType *TypeInfo  `json:"slice_element_type,omitempty"` // If Kind is Slice, this describes the element type.
+	MapValueType     *TypeInfo  `json:"map_value_type,omitempty"`     // If Kind is Map, this describes the value type.
 }
 
 // FieldInfo represents a field within a Go struct to be generated.
@@ -57,9 +59,10 @@ type FieldInfo struct {
 // StructDef represents a Go struct definition that needs to be generated.
 // This will be the primary output of the Analyzer.
 type StructDef struct {
-	Name   string      `json:"name"`    // Name of the Go struct (e.g., "Root", "User", "Address")
-	Fields []FieldInfo `json:"fields"`  // List of fields in this struct
-	IsRoot bool        `json:"is_root"` // True if this is a top-level struct generated from the JSON root
+	Name   string      `json:"name"`           // Name of the Go struct (e.g., "Root", "User", "Address")
+	Fields []FieldInfo `json:"fields"`         // List of fields in this struct
+	IsRoot bool        `json:"is_root"`        // True if this is a top-level struct generated from the JSON root
+	Type   *TypeInfo   `json:"type,omitempty"` // Schema root alias target, if set.
 	// We might add comments or other metadata here later.
 }
 

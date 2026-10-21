@@ -81,6 +81,11 @@ func (g *Generator) GenerateStructs(result models.AnalysisResult, packageName st
 			buf.WriteString("\n")
 		}
 
+		if structDef.Type != nil {
+			fmt.Fprintf(&buf, "type %s = %s\n\n", structDef.Name, getTypeString(*structDef.Type))
+			continue
+		}
+
 		// Write struct definition
 		buf.WriteString(fmt.Sprintf("type %s struct {\n", structDef.Name))
 
@@ -174,6 +179,12 @@ func getTypeString(typeInfo models.TypeInfo) string {
 	switch typeInfo.Kind {
 	case models.Struct:
 		typeStr = typeInfo.StructName
+	case models.Map:
+		if typeInfo.MapValueType != nil {
+			typeStr = "map[string]" + getTypeString(*typeInfo.MapValueType)
+		} else {
+			typeStr = "map[string]interface{}"
+		}
 	case models.Slice:
 		if typeInfo.SliceElementType != nil {
 			elementType := getTypeString(*typeInfo.SliceElementType)
