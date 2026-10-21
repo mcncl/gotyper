@@ -28,6 +28,7 @@ var CLI struct {
 	URL         string   `help:"URL to fetch JSON from. Supports http and https." short:"u"`
 	Schema      string   `help:"Path or URL to JSON Schema file. Generates structs from schema instead of sample JSON." short:"s"`
 	Output      string   `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
+	Check       bool     `help:"Check that --output matches generated code without writing files. Requires --output."`
 	Package     string   `help:"Package name for generated code." short:"p" default:"main"`
 	RootName    string   `help:"Name for the root struct." short:"r" default:"RootType"`
 	Config      string   `help:"Path to config file. If not specified, searches for .gotyper.yml in current and parent directories." short:"c" type:"path"`
@@ -136,6 +137,10 @@ func createContext() (*Context, error) {
 
 // run executes the main program logic
 func run(ctx *Context) error {
+	if CLI.Check && CLI.Output == "" {
+		return errors.NewInputError("--check requires --output", nil)
+	}
+
 	var analysisResult models.AnalysisResult
 	var err error
 
@@ -354,6 +359,20 @@ func parseJSONInput(reader io.Reader, source string) (models.IntermediateReprese
 
 // writeOutput writes code to file or stdout
 func writeOutput(code string) error {
+	if CLI.Check {
+		existing, err := os.ReadFile(CLI.Output)
+		if os.IsNotExist(err) {
+			return errors.NewOutputError(fmt.Sprintf("output file '%s' is missing; regenerate without --check", CLI.Output), err)
+		}
+		if err != nil {
+			return errors.NewOutputError(fmt.Sprintf("failed to read output file '%s'", CLI.Output), err)
+		}
+		if string(existing) != code {
+			return errors.NewOutputError(fmt.Sprintf("output file '%s' is stale; regenerate without --check", CLI.Output), nil)
+		}
+		return nil
+	}
+
 	if CLI.Output != "" {
 		// Write to file
 		err := os.WriteFile(CLI.Output, []byte(code), 0o644)
