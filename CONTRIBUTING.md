@@ -27,7 +27,7 @@ This project adheres to a code of conduct that we expect all contributors to fol
 
 ### Prerequisites
 
-- Go 1.25 or later
+- Go 1.27.3 or later
 - Git
 - A GitHub account
 
