@@ -42,9 +42,7 @@ type Context struct {
 }
 
 // Version information
-const (
-	Version = "dev"
-)
+var Version = "dev"
 
 func main() {
 	// Parse CLI arguments with Kong

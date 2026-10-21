@@ -216,7 +216,17 @@ func TestCLI_Version(t *testing.T) {
 	cmd := exec.Command("go", "run", "../../main.go", "-v")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err)
-	assert.Contains(t, string(output), "gotyper version")
+	assert.Equal(t, "gotyper version dev\n", string(output))
+
+	binary := filepath.Join(t.TempDir(), "gotyper.exe")
+	cmd = exec.Command("go", "build", "-ldflags=-s -w -X main.Version=v1.2.3", "-o", binary, "../..")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	cmd = exec.Command(binary, "--version")
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err)
+	assert.Equal(t, "gotyper version v1.2.3\n", string(output))
 }
 
 // TestCLI_Help tests the help output
