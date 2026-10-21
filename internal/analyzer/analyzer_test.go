@@ -1,11 +1,16 @@
 package analyzer
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mcncl/gotyper/internal/config"
+	"github.com/mcncl/gotyper/internal/generator"
 	"github.com/mcncl/gotyper/internal/models"
 	"github.com/mcncl/gotyper/internal/parser"
 	"github.com/stretchr/testify/assert"
@@ -208,25 +213,25 @@ func TestAnalyze_EnhancedTimeFormats(t *testing.T) {
 		{
 			name:        "ISO8601 with timezone (short)",
 			jsonInput:   `{"timestamp": "2023-01-15T10:30:00+0530"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "ISO8601 with short timezone format",
 		},
 		{
 			name:        "Date only",
 			jsonInput:   `{"date": "2023-01-15"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "Date-only format",
 		},
 		{
 			name:        "DateTime with space",
 			jsonInput:   `{"datetime": "2023-01-15 10:30:00"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "DateTime with space separator",
 		},
 		{
 			name:        "DateTime with microseconds",
 			jsonInput:   `{"datetime": "2023-01-15 10:30:00.123456"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "DateTime with microsecond precision",
 		},
 		{
@@ -289,25 +294,25 @@ func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
 		{
 			name:        "US date MM/DD/YYYY",
 			jsonInput:   `{"date": "01/15/2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "US format with leading zeros",
 		},
 		{
 			name:        "US date M/D/YYYY",
 			jsonInput:   `{"date": "1/15/2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "US format without leading zeros",
 		},
 		{
 			name:        "US date MM-DD-YYYY",
 			jsonInput:   `{"date": "01-15-2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "US format with hyphens",
 		},
 		{
 			name:        "US date M-D-YYYY",
 			jsonInput:   `{"date": "1-15-2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "US format with hyphens, no leading zeros",
 		},
 
@@ -315,25 +320,25 @@ func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
 		{
 			name:        "European date DD/MM/YYYY",
 			jsonInput:   `{"date": "15/01/2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "European format with leading zeros",
 		},
 		{
 			name:        "European date D/M/YYYY",
 			jsonInput:   `{"date": "15/1/2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "European format without leading zeros",
 		},
 		{
 			name:        "European date DD-MM-YYYY",
 			jsonInput:   `{"date": "15-01-2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "European format with hyphens",
 		},
 		{
 			name:        "European date D.M.YYYY",
 			jsonInput:   `{"date": "15.01.2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "European format with dots",
 		},
 
@@ -341,19 +346,19 @@ func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
 		{
 			name:        "ISO8601 basic format",
 			jsonInput:   `{"timestamp": "20230115T103000Z"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "ISO8601 basic format without separators",
 		},
 		{
 			name:        "ISO8601 week date",
 			jsonInput:   `{"timestamp": "2023-W03-1T10:30:00Z"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "ISO8601 week date format",
 		},
 		{
 			name:        "ISO8601 ordinal date",
 			jsonInput:   `{"timestamp": "2023-015T10:30:00Z"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "ISO8601 ordinal date format",
 		},
 
@@ -361,25 +366,25 @@ func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
 		{
 			name:        "Time only HH:MM:SS",
 			jsonInput:   `{"time": "14:30:15"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "24-hour time format",
 		},
 		{
 			name:        "Time only HH:MM",
 			jsonInput:   `{"time": "14:30"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "24-hour time format without seconds",
 		},
 		{
 			name:        "Time with AM/PM",
 			jsonInput:   `{"time": "2:30:15 PM"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "12-hour time format with AM/PM",
 		},
 		{
 			name:        "Time with am/pm lowercase",
 			jsonInput:   `{"time": "2:30:15 pm"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "12-hour time format with lowercase am/pm",
 		},
 
@@ -387,13 +392,13 @@ func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
 		{
 			name:        "Date with dots YYYY.MM.DD",
 			jsonInput:   `{"date": "2023.01.15"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "ISO-style date with dots",
 		},
 		{
 			name:        "Date YYYYMMDD",
 			jsonInput:   `{"date": "20230115"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "Compact date format",
 		},
 
@@ -401,19 +406,19 @@ func TestAnalyze_EnhancedTimeFormatsExtended(t *testing.T) {
 		{
 			name:        "Date with full month name",
 			jsonInput:   `{"date": "January 15, 2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "Date with full month name",
 		},
 		{
 			name:        "Date with abbreviated month",
 			jsonInput:   `{"date": "Jan 15, 2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "Date with abbreviated month name",
 		},
 		{
 			name:        "Date with month name no comma",
 			jsonInput:   `{"date": "15 January 2023"}`,
-			expectTime:  true,
+			expectTime:  false,
 			description: "European style with month name",
 		},
 
@@ -562,99 +567,115 @@ func TestAnalyze_UnixTimestampConfiguration(t *testing.T) {
 	}
 }
 
-func TestAnalyze_DateFormatConfiguration(t *testing.T) {
-	tests := []struct {
-		name                      string
-		jsonInput                 string
-		dateFormat                string
-		expectedUsedDefaultFormat bool
-		expectTimeImport          bool
-		description               string
-	}{
-		{
-			name:                      "Ambiguous date with default US format",
-			jsonInput:                 `{"date": "05/06/2023"}`,
-			dateFormat:                "", // Default - empty string
-			expectedUsedDefaultFormat: true,
-			expectTimeImport:          true,
-			description:               "Ambiguous date with default format should set UsedDefaultDateFormat flag",
-		},
-		{
-			name:                      "Ambiguous date with explicit US format",
-			jsonInput:                 `{"date": "05/06/2023"}`,
-			dateFormat:                "us",
-			expectedUsedDefaultFormat: false,
-			expectTimeImport:          true,
-			description:               "Ambiguous date with explicit US format should not set UsedDefaultDateFormat flag",
-		},
-		{
-			name:                      "Ambiguous date with EU format",
-			jsonInput:                 `{"date": "05/06/2023"}`,
-			dateFormat:                "eu",
-			expectedUsedDefaultFormat: false,
-			expectTimeImport:          true,
-			description:               "Ambiguous date with EU format should not set UsedDefaultDateFormat flag",
-		},
-		{
-			name:                      "Unambiguous US-only date (month > 12)",
-			jsonInput:                 `{"date": "12/25/2023"}`,
-			dateFormat:                "",
-			expectedUsedDefaultFormat: false, // Not ambiguous - only US format matches
-			expectTimeImport:          true,
-			description:               "Date with day > 12 is unambiguous (only US matches)",
-		},
-		{
-			name:                      "Unambiguous EU-only date (day > 12)",
-			jsonInput:                 `{"date": "25/12/2023"}`,
-			dateFormat:                "",
-			expectedUsedDefaultFormat: false, // Not ambiguous - only EU format matches
-			expectTimeImport:          true,
-			description:               "Date with first number > 12 is unambiguous (only EU matches)",
-		},
-		{
-			name:                      "Ambiguous dash-separated date",
-			jsonInput:                 `{"date": "05-06-2023"}`,
-			dateFormat:                "",
-			expectedUsedDefaultFormat: true,
-			expectTimeImport:          true,
-			description:               "Ambiguous dash-separated date should set flag",
-		},
-		{
-			name:                      "EU dot-separated date (unambiguous)",
-			jsonInput:                 `{"date": "25.12.2023"}`,
-			dateFormat:                "",
-			expectedUsedDefaultFormat: false,
-			expectTimeImport:          true,
-			description:               "Dot-separated dates are always EU format (unambiguous)",
-		},
-		{
-			name:                      "ISO date format (unambiguous)",
-			jsonInput:                 `{"date": "2023-12-25"}`,
-			dateFormat:                "",
-			expectedUsedDefaultFormat: false,
-			expectTimeImport:          true,
-			description:               "ISO format dates are unambiguous",
-		},
+func TestAnalyze_DateDecoding(t *testing.T) {
+	stringsToKeep := []string{
+		"2023-01-15", "2023.1.5", "20230115", "01/15/2023", "1/15/2023",
+		"01-15-2023", "1-15-2023", "15/01/2023", "15/1/2023", "15-01-2023",
+		"15.01.2023", "05/06/2023", "05-06-2023", "January 15, 2023",
+		"Jan 15, 2023", "15 January 2023", "14:30:15", "14:30", "2:30:15 PM",
+		"2:30:15 pm", "2023-01-15 10:30:00", "2023-01-15 10:30:00.123456",
+		"2023-01-15T10:30:00", "2023-01-15T10:30:00+0530", "20230115T103000Z",
+		"2023-W03-1T10:30:00Z", "2023-015T10:30:00Z", "2023-02-29T10:30:00Z",
+		"2024-04-31T10:30:00Z", "2024-13-01T10:30:00Z", "2024-01-00T10:30:00Z",
+		"2024-01-15T24:00:00Z", "2024-01-15T10:60:00Z", "2024-01-15T10:30:60Z",
+		"2024-01-15T10:30:00+24:00", "2024-01-15T10:30:00+01:60",
+		"2024-01-15T1:30:00Z", "2024-01-15T10:30:00,123Z", "not a timestamp",
 	}
+	sample := map[string]any{
+		"utc":     "2023-01-15T10:30:00Z",
+		"leap":    "2024-02-29T10:30:00.123456789Z",
+		"offset":  "2023-01-15T10:30:00+05:30",
+		"seconds": int64(1674641400), "millis": int64(1674641400000),
+		"negative": int64(-1674641400), "outside": int64(2000000000),
+	}
+	checks := `
+if !v.Utc.Equal(time.Date(2023, 1, 15, 10, 30, 0, 0, time.UTC)) { t.Fatal(v.Utc) }
+if !v.Leap.Equal(time.Date(2024, 2, 29, 10, 30, 0, 123456789, time.UTC)) { t.Fatal(v.Leap) }
+if !v.Offset.Equal(time.Date(2023, 1, 15, 5, 0, 0, 0, time.UTC)) { t.Fatal(v.Offset) }
+if v.Seconds != int64(1674641400) || v.Millis != int64(1674641400000) || v.Negative != int64(-1674641400) || v.Outside != int64(2000000000) { t.Fatal(v) }
+`
+	for i, s := range stringsToKeep {
+		key := fmt.Sprintf("text%d", i)
+		sample[key] = s
+		checks += fmt.Sprintf("var _ string = v.Text%d\nif v.Text%d != %q { t.Fatalf(\"%s: %%#v\", v.Text%d) }\n", i, i, s, key, i)
+	}
+	data, err := json.Marshal(sample)
+	require.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module datetest\n\ngo 1.25\n"), 0600))
+	for _, mode := range []string{"default", "us", "eu", "mapping", "numeric_opt_in"} {
+		cfg := config.NewConfig()
+		input := string(data)
+		body := checks
+		switch mode {
+		case "us", "eu":
+			cfg.Types.DateFormat = mode
+		case "mapping":
+			cfg.Types.Mappings = []config.TypeMapping{
+				{Pattern: "^value$", Type: "json.RawMessage", Import: "encoding/json"},
+				{Pattern: "^timestamp$", Type: "string"},
+			}
+			input = `{"value":"2023-01-15","timestamp":"2023-01-15T10:30:00Z"}`
+			body = `
+if string(v.Value) != "\"2023-01-15\"" { t.Fatal(string(v.Value)) }
+var _ string = v.Timestamp
+if v.Timestamp != "2023-01-15T10:30:00Z" { t.Fatal(v.Timestamp) }
+`
+		case "numeric_opt_in":
+			cfg.Types.UnixTimestampsAsTime = true
+			input = `{"seconds":1674641400,"millis":1674641400000,"outside":2000000000}`
+			body = `
+var _ time.Time = v.Seconds
+var _ time.Time = v.Millis
+var _ int64 = v.Outside
+for _, input := range []string{"{\"seconds\":1674641400}", "{\"millis\":1674641400000}"} {
+    if err := json.Unmarshal([]byte(input), &v); err == nil { t.Fatal("numeric time.Time unexpectedly decoded") }
+}
+`
+		}
+		ir, err := parser.ParseString(input)
+		require.NoError(t, err)
+		result, err := NewAnalyzerWithConfig(cfg).Analyze(ir, "Sample")
+		require.NoError(t, err)
+		code, err := generator.NewGenerator().GenerateStructs(result, "datetest")
+		require.NoError(t, err)
+		pkg := filepath.Join(dir, mode)
+		require.NoError(t, os.Mkdir(pkg, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(pkg, "sample.go"), []byte(code), 0600))
+		decode := fmt.Sprintf("if err := json.Unmarshal([]byte(%q), &v); err != nil { t.Fatal(err) }\n", input)
+		imports := `"encoding/json"; "testing"; "time"`
+		if mode == "numeric_opt_in" {
+			decode = ""
+		}
+		if mode == "mapping" {
+			imports = `"encoding/json"; "testing"`
+		}
+		testCode := fmt.Sprintf("package datetest\nimport (%s)\nfunc TestDecode(t *testing.T) { var v Sample\n%s%s\n}\n", imports, decode, body)
+		require.NoError(t, os.WriteFile(filepath.Join(pkg, "sample_test.go"), []byte(testCode), 0600))
+	}
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	t.Logf("Generated code compilation and decoding:\n%s", output)
+}
+
+func TestAnalyze_DateFormatConfiguration(t *testing.T) {
+	for _, dateFormat := range []string{"", "us", "eu"} {
+		t.Run(dateFormat, func(t *testing.T) {
 			cfg := config.NewConfig()
-			cfg.Types.DateFormat = tt.dateFormat
+			cfg.Types.DateFormat = dateFormat
 
-			ir, err := parser.ParseString(tt.jsonInput)
-			require.NoError(t, err, "Failed to parse JSON for test: %s", tt.description)
+			ir, err := parser.ParseString(`{"date": "05/06/2023"}`)
+			require.NoError(t, err)
 
 			analyzer := NewAnalyzerWithConfig(cfg)
 			result, err := analyzer.Analyze(ir, "TestStruct")
-			require.NoError(t, err, "Failed to analyze for test: %s", tt.description)
-
-			assert.Equal(t, tt.expectedUsedDefaultFormat, result.UsedDefaultDateFormat,
-				"UsedDefaultDateFormat mismatch for test: %s", tt.description)
-
-			if tt.expectTimeImport {
-				assert.Contains(t, result.Imports, "time", "Expected time import for test: %s", tt.description)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, "string", result.Structs[0].Fields[0].GoType.Name)
+			assert.False(t, result.UsedDefaultDateFormat)
+			assert.NotContains(t, result.Imports, "time")
 		})
 	}
 }
