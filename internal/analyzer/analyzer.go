@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort" // Added for sorting map keys
 	"strings"
+	"time"
 
 	"github.com/iancoleman/strcase"
 	"github.com/mcncl/gotyper/internal/config"
@@ -17,41 +18,9 @@ const DefaultRootName = "RootType"
 
 // Regex patterns for special types
 var (
-	uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
-	// Time format patterns (ordered by specificity - most specific first)
-	// ISO8601 and RFC3339 formats
-	rfc3339NanoRegex    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}(Z|[+-]\d{2}:\d{2})$`)             // 2006-01-02T15:04:05.999999999Z
-	rfc3339Regex        = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)            // 2006-01-02T15:04:05Z
-	iso8601Regex        = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z|[+-]\d{4})?$`) // ISO8601 variants
-	iso8601BasicRegex   = regexp.MustCompile(`^\d{8}T\d{6}Z?$`)                                                             // 20230115T103000Z
-	iso8601WeekRegex    = regexp.MustCompile(`^\d{4}-W\d{2}-\d{1}T\d{2}:\d{2}:\d{2}Z?$`)                                    // 2023-W03-1T10:30:00Z
-	iso8601OrdinalRegex = regexp.MustCompile(`^\d{4}-\d{3}T\d{2}:\d{2}:\d{2}Z?$`)                                           // 2023-015T10:30:00Z
-
-	// Date and time with space separator
-	dateTimeRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$`) // 2006-01-02 15:04:05
-
-	// Date-only formats
-	dateOnlyRegex    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)       // 2006-01-02
-	dateDotsRegex    = regexp.MustCompile(`^\d{4}\.\d{1,2}\.\d{1,2}$`) // 2023.01.15 or 2023.1.5
-	dateCompactRegex = regexp.MustCompile(`^\d{8}$`)                   // 20230115
-
-	// US date formats (MM/DD/YYYY, MM-DD-YYYY)
-	usDateSlashRegex = regexp.MustCompile(`^(0?[1-9]|1[0-2])[/](0?[1-9]|[12]\d|3[01])[/]\d{4}$`) // MM/DD/YYYY or M/D/YYYY
-	usDateDashRegex  = regexp.MustCompile(`^(0?[1-9]|1[0-2])[-](0?[1-9]|[12]\d|3[01])[-]\d{4}$`) // MM-DD-YYYY or M-D-YYYY
-
-	// European date formats (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY)
-	euroDateSlashRegex = regexp.MustCompile(`^(0?[1-9]|[12]\d|3[01])[/](0?[1-9]|1[0-2])[/]\d{4}$`) // DD/MM/YYYY or D/M/YYYY
-	euroDateDashRegex  = regexp.MustCompile(`^(0?[1-9]|[12]\d|3[01])[-](0?[1-9]|1[0-2])[-]\d{4}$`) // DD-MM-YYYY or D-M-YYYY
-	euroDateDotRegex   = regexp.MustCompile(`^(0?[1-9]|[12]\d|3[01])[.](0?[1-9]|1[0-2])[.]\d{4}$`) // DD.MM.YYYY or D.M.YYYY
-
-	// Time-only formats
-	time24HourRegex = regexp.MustCompile(`^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$`)              // HH:MM:SS or HH:MM (24-hour)
-	time12HourRegex = regexp.MustCompile(`^(0?[1-9]|1[0-2]):[0-5]\d(:[0-5]\d)?\s?[APap][Mm]$`) // H:MM:SS AM/PM or H:MM AM/PM
-
-	// Month name formats
-	monthNameRegex     = regexp.MustCompile(`^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}$`) // January 15, 2023 or Jan 15, 2023
-	monthNameEuroRegex = regexp.MustCompile(`^\d{1,2}\s+(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}$`)   // 15 January 2023
+	// Require RFC3339 syntax before parsing because time.Parse accepts some
+	// non-RFC3339 forms, such as a single-digit hour or a comma fraction.
+	rfc3339Regex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$`)
 
 	// Unix timestamps (kept as separate patterns for potential configuration options)
 	unixTimestampRegex = regexp.MustCompile(`^1[0-9]{9}$`)  // Unix timestamp (seconds since 1970)
@@ -194,160 +163,13 @@ func (a *Analyzer) analyzeNode(node models.JSONValue, suggestedName string, isRo
 }
 
 func (a *Analyzer) analyzeString(s string) models.TypeInfo {
-	// Check for UUID pattern but use string type to avoid external dependency
-	if uuidRegex.MatchString(s) {
-		// Use string type instead of uuid.UUID to avoid dependency in tests
-		return models.TypeInfo{Kind: models.String, Name: "string"}
-	}
-
-	// Check for various time formats (ordered by specificity - most specific first)
-
-	// ISO8601 and RFC3339 formats (most specific)
-	if rfc3339NanoRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
 	if rfc3339Regex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if iso8601Regex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if iso8601BasicRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if iso8601WeekRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if iso8601OrdinalRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-
-	// Date and time with space separator
-	if dateTimeRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-
-	// Month name formats (before numeric date formats to avoid conflicts)
-	if monthNameRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if monthNameEuroRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-
-	// Date-only formats
-	if dateOnlyRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if dateDotsRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if dateCompactRegex.MatchString(s) {
-		// Be careful with 8-digit numbers - check if they look like dates
-		// Simple validation: must be in reasonable year range and valid month/day
-		if len(s) == 8 && s[:4] >= "1900" && s[:4] <= "2100" {
+		if _, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			a.analysisResult.Imports["time"] = struct{}{}
 			return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 		}
 	}
-
-	// Handle potentially ambiguous date formats (US vs EU)
-	// Dates like "05/06/2023" could be May 6 (US) or June 5 (EU)
-	if result := a.detectAmbiguousDate(s); result != nil {
-		return *result
-	}
-
-	// European dot-separated dates are unambiguous (DD.MM.YYYY)
-	if euroDateDotRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-
-	// Time-only formats
-	if time24HourRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-	if time12HourRegex.MatchString(s) {
-		a.analysisResult.Imports["time"] = struct{}{}
-		return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-	}
-
 	return models.TypeInfo{Kind: models.String, Name: "string"}
-}
-
-// detectAmbiguousDate handles date formats that could be interpreted as either US or EU format.
-// Returns nil if the string is not a date, or a TypeInfo if it matches a date pattern.
-func (a *Analyzer) detectAmbiguousDate(s string) *models.TypeInfo {
-	// Check slash-separated dates
-	usSlashMatch := usDateSlashRegex.MatchString(s)
-	euroSlashMatch := euroDateSlashRegex.MatchString(s)
-
-	if usSlashMatch || euroSlashMatch {
-		if usSlashMatch && euroSlashMatch {
-			// Ambiguous date - use config preference
-			a.markAmbiguousDateUsed()
-		}
-		// Use the preferred format (or whichever one matched)
-		dateFormat := a.config.GetDateFormat()
-		if dateFormat == "eu" && euroSlashMatch {
-			a.analysisResult.Imports["time"] = struct{}{}
-			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-		}
-		if usSlashMatch {
-			a.analysisResult.Imports["time"] = struct{}{}
-			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-		}
-		// Fallback to EU if US didn't match but EU did
-		if euroSlashMatch {
-			a.analysisResult.Imports["time"] = struct{}{}
-			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-		}
-	}
-
-	// Check dash-separated dates
-	usDashMatch := usDateDashRegex.MatchString(s)
-	euroDashMatch := euroDateDashRegex.MatchString(s)
-
-	if usDashMatch || euroDashMatch {
-		if usDashMatch && euroDashMatch {
-			// Ambiguous date - use config preference
-			a.markAmbiguousDateUsed()
-		}
-		dateFormat := a.config.GetDateFormat()
-		if dateFormat == "eu" && euroDashMatch {
-			a.analysisResult.Imports["time"] = struct{}{}
-			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-		}
-		if usDashMatch {
-			a.analysisResult.Imports["time"] = struct{}{}
-			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-		}
-		if euroDashMatch {
-			a.analysisResult.Imports["time"] = struct{}{}
-			return &models.TypeInfo{Kind: models.Time, Name: "time.Time"}
-		}
-	}
-
-	return nil
-}
-
-// markAmbiguousDateUsed records that we detected an ambiguous date using the default format
-func (a *Analyzer) markAmbiguousDateUsed() {
-	if a.config.IsDateFormatDefault() {
-		a.analysisResult.UsedDefaultDateFormat = true
-	}
 }
 
 func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
@@ -356,7 +178,7 @@ func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
 	// Check for Unix timestamps - common pattern in APIs
 	if unixTimestampRegex.MatchString(numStr) {
 		if a.config.Types.UnixTimestampsAsTime {
-			// Convert Unix timestamps to time.Time when configured
+			// Legacy opt-in selects a type; callers must handle numeric decoding.
 			a.analysisResult.Imports["time"] = struct{}{}
 			return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 		}
@@ -365,7 +187,7 @@ func (a *Analyzer) analyzeNumber(num json.Number) models.TypeInfo {
 	}
 	if unixMilliRegex.MatchString(numStr) {
 		if a.config.Types.UnixTimestampsAsTime {
-			// Convert Unix timestamps to time.Time when configured
+			// Legacy opt-in selects a type; callers must handle numeric decoding.
 			a.analysisResult.Imports["time"] = struct{}{}
 			return models.TypeInfo{Kind: models.Time, Name: "time.Time"}
 		}
@@ -1036,7 +858,6 @@ func (a *Analyzer) analyzeSamples(values []models.JSONValue, suggestedName strin
 		}
 		if result.Kind == models.Time {
 			a.analysisResult.Imports["time"] = struct{}{}
-			a.analysisResult.UsedDefaultDateFormat = a.analysisResult.UsedDefaultDateFormat || probe.analysisResult.UsedDefaultDateFormat
 		}
 		result.IsPointer = nullable
 		return result, nil

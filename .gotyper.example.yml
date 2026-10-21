@@ -21,10 +21,13 @@ types:
   # Always use pointers for optional fields (fields that can be null/missing)
   optional_as_pointers: true
 
-  # Preferred date format for ambiguous dates like "05/06/2023"
-  # Options: "us" (MM/DD/YYYY - default) or "eu" (DD/MM/YYYY)
-  # If not set, defaults to "us" and adds a comment to the output
+  # Legacy setting, accepted but no longer used for JSON samples.
+  # Non-RFC3339 date strings remain strings regardless of this value.
   date_format: "us"
+
+  # Legacy type-selection opt-in for 10/13-digit integers starting with 1.
+  # true emits time.Time, but requires caller-side conversion/custom decoding.
+  unix_timestamps_as_time: false
 
   # Custom type mappings for specific patterns
   mappings:
@@ -39,7 +42,7 @@ types:
       import: "github.com/yourorg/types"
       comment: "Email address"
     
-    # Map timestamp fields to time.Time
+    # Map timestamp fields to time.Time (requires RFC3339 input or custom decoding)
     - pattern: ".*_at$|.*_time$|timestamp"
       type: "time.Time"
       import: "time"

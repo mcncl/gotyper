@@ -23,6 +23,27 @@ func TestSampleMerging(t *testing.T) {
 		check     string
 	}{
 		{
+			name: "validated dates",
+			samples: []string{
+				`{"stamp":"2024-02-29T10:30:00Z","date":"2024-02-29"}`,
+				`{"stamp":"2023-01-15T10:30:00+05:30","date":"05/06/2023"}`,
+			},
+			check: `var _ string = rows[0].Date
+			if rows[0].Stamp.Year() != 2024 || rows[0].Stamp.Day() != 29 || rows[1].Stamp.UTC().Hour() != 5 { t.Fatal("valid RFC3339 dates") }
+			if rows[0].Date != "2024-02-29" || rows[1].Date != "05/06/2023" { t.Fatal("non-RFC3339 dates") }`,
+		},
+		{
+			name: "invalid dates discard time imports",
+			samples: []string{
+				`{"stamp":"2024-02-29T10:30:00Z","nested":[{"date":"2023-01-15"}]}`,
+				`{"stamp":"2023-02-29T10:30:00Z","nested":[{"date":"05/06/2023"}]}`,
+			},
+			check: `var _ string = rows[0].Stamp
+			var _ string = (*rows[0].Nested)[0].Date
+			if rows[0].Stamp != "2024-02-29T10:30:00Z" || rows[1].Stamp != "2023-02-29T10:30:00Z" { t.Fatal("invalid date fallback") }
+			if (*rows[0].Nested)[0].Date != "2023-01-15" || (*rows[1].Nested)[0].Date != "05/06/2023" { t.Fatal("nested date strings") }`,
+		},
+		{
 			name: "optional and numeric fields",
 			samples: []string{
 				`{"count":7,"label":"first","maybe":null,"only_null":null,"payload":{"left":11}}`,

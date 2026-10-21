@@ -462,49 +462,47 @@ GoTyper automatically detects appropriate Go types based on the JSON data:
 - Null → pointer types with `omitempty` tag
 - Objects → custom struct types
 - Arrays → slices of appropriate types
-- **Enhanced Time Detection** → `time.Time`
+- Valid RFC3339 strings → `time.Time`
 - UUIDs (e.g., `123e4567-e89b-12d3-a456-426614174000`) → `string`
 
-### Enhanced Time Format Detection
+### Date and Time Inference
 
-GoTyper includes comprehensive time format detection that recognizes various timestamp formats commonly found in real-world APIs and data sources:
+For JSON samples, GoTyper infers `time.Time` only for valid RFC3339 strings,
+including fractional seconds and colon-separated timezone offsets:
 
-**ISO8601 and RFC3339 Formats:**
-- `2023-01-15T14:30:00Z` (RFC3339)
-- `2023-01-15T14:30:00.123456789Z` (RFC3339 with nanoseconds)
-- `2023-01-15T14:30:00+05:30` (ISO8601 with timezone)
-- `20230115T143000Z` (ISO8601 basic format)
-- `2023-W03-1T10:30:00Z` (ISO8601 week date)
-- `2023-015T10:30:00Z` (ISO8601 ordinal date)
+- `2023-01-15T14:30:00Z`
+- `2024-02-29T14:30:00.123456789Z`
+- `2023-01-15T14:30:00+05:30`
 
-**Date-Only Formats:**
-- `2023-01-15` (ISO date)
-- `2023.01.15` (dot-separated)
-- `20230115` (compact format)
+Calendar dates and clock values are validated, not just their shape. Invalid
+values such as `2023-02-29T14:30:00Z` stay `string`. Leap seconds are not
+supported by Go's `time.Time` and also stay `string`.
+Detection requires uppercase `T` and `Z`. Go truncates fractional seconds
+beyond nine digits to nanosecond precision.
 
-**US Date Formats:**
-- `01/15/2023` or `1/15/2023` (MM/DD/YYYY)
-- `01-15-2023` or `1-15-2023` (MM-DD-YYYY)
+All other strings stay `string`, including date-only, US/EU dates, time-only,
+month names, space-separated date-times, ISO8601 basic/week/ordinal forms,
+timestamps without a timezone, and offsets such as `+0530`. This lets standard
+`encoding/json` decode those date layouts as strings without custom parsing.
+This is not a guarantee for every JSON spelling: Go's `time.Time` decoder does
+not unescape strings, so an RFC3339 value written with JSON escapes (such as
+`\u0054` instead of `T`) still requires custom handling.
+The legacy `date_format` setting is still accepted but no longer changes JSON
+sample inference or emits a date-format assumption comment.
 
-**European Date Formats:**
-- `15/01/2023` or `15/1/2023` (DD/MM/YYYY)
-- `15-01-2023` or `15-1-2023` (DD-MM-YYYY)
-- `15.01.2023` or `15.1.2023` (DD.MM.YYYY)
+Explicit field type mappings still take precedence. When mapping a field to
+`time.Time` or another custom type, the caller is responsible for compatibility
+with the input, including any custom JSON decoding required.
 
-**Time-Only Formats:**
-- `14:30:15` or `14:30` (24-hour format)
-- `2:30:15 PM` or `2:30 pm` (12-hour format with AM/PM)
-
-**Month Name Formats:**
-- `January 15, 2023` or `Jan 15, 2023` (US style)
-- `15 January 2023` (European style)
-
-**Unix Timestamps:**
-- Unix timestamps (seconds and milliseconds) are kept as `int64` by default for flexibility
-- Use `unix_timestamps_as_time: true` in configuration to convert them to `time.Time`
-
-**DateTime with Space:**
-- `2023-01-15 14:30:00` (space-separated date and time)
+**Numeric timestamps:** integers remain `int64` by default. The legacy opt-in
+`unix_timestamps_as_time: true` still emits `time.Time` for positive 10- or
+13-digit integer literals beginning with `1`. This is a type-selection heuristic,
+not timestamp conversion: generated code compiles, but standard `encoding/json`
+cannot decode those numbers into `time.Time`. Callers must convert the input to
+RFC3339 strings or implement custom decoding on the containing type. Negative
+values, other digit lengths/prefixes, quoted numbers, and decimal/exponent forms
+are not promoted by this option. Leave it `false` to decode numeric samples
+without custom handling.
 
 ### Special Type Handling
 
@@ -567,7 +565,7 @@ formatting:
 types:
   force_int64: false               # Force all integers to int64
   optional_as_pointers: true       # Make nullable fields pointers
-  unix_timestamps_as_time: false   # Convert Unix timestamps to time.Time instead of int64
+  unix_timestamps_as_time: false   # Legacy opt-in; true requires custom numeric timestamp decoding
   mappings:
     - pattern: ".*_id$|^id$"       # Regex pattern for field names
       type: "int64"                # Target Go type
