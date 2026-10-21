@@ -64,6 +64,8 @@ gotyper
 
 ```
   -i, --input=STRING     Path to input JSON file. If not specified, reads from stdin.
+      --sample=PATH     Sample file to merge. Repeat for multiple files.
+      --ndjson          Read one JSON value per nonblank line.
   -u, --url=STRING       URL to fetch JSON from. Supports http and https.
   -s, --schema=STRING    Path or URL to JSON Schema file. Generates structs from schema instead of sample JSON.
   -o, --output=STRING    Path to output Go file. If not specified, writes to stdout.
@@ -75,6 +77,38 @@ gotyper
   -v, --version          Show version information.
   -I, --interactive      Run in interactive mode, allowing direct JSON input with Ctrl+D to process.
 ```
+
+### Multiple samples and NDJSON
+
+Use repeated `--sample` options to infer one model from several JSON documents:
+
+```bash
+gotyper --sample response1.json --sample response2.json -r Response -o response.go
+```
+
+Each file must contain exactly one JSON value. Each document contributes one
+sample, just like an element of a JSON array. Array-valued documents keep their
+array depth. Sample order does not change the output. `--sample` cannot be
+combined with `--input`, `--url`, `--schema`, or `--interactive`.
+
+For newline-delimited JSON, select `--ndjson` explicitly:
+
+```bash
+cat responses.ndjson | gotyper --ndjson -r Response
+gotyper --ndjson -i responses.ndjson -r Response
+gotyper --ndjson --url https://api.example.com/responses -r Response
+gotyper --ndjson --sample first.ndjson --sample second.ndjson -r Response
+```
+
+Each nonblank line must contain one complete JSON value. Blank lines are ignored;
+CRLF line endings and a final record without a newline are accepted. Empty inputs
+are errors. Invalid records report the source, one-based record number, and
+physical line number. Records from multiple files use the same inference rules
+as one stream; record and line numbers restart in each file.
+
+NDJSON is not detected automatically and cannot be used with `--schema`. Without
+these options, the existing file, stdin, URL, and interactive workflows still
+read exactly one JSON document and reject trailing values or invalid data.
 
 ### Sample merging
 

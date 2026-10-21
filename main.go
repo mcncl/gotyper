@@ -22,17 +22,19 @@ import (
 
 // CLI defines the command-line interface
 var CLI struct {
-	Input       string `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
-	URL         string `help:"URL to fetch JSON from. Supports http and https." short:"u"`
-	Schema      string `help:"Path or URL to JSON Schema file. Generates structs from schema instead of sample JSON." short:"s"`
-	Output      string `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
-	Package     string `help:"Package name for generated code." short:"p" default:"main"`
-	RootName    string `help:"Name for the root struct." short:"r" default:"RootType"`
-	Config      string `help:"Path to config file. If not specified, searches for .gotyper.yml in current and parent directories." short:"c" type:"path"`
-	Format      bool   `help:"Format the output code according to Go standards." short:"f" default:"true"`
-	Debug       bool   `help:"Enable debug logging." short:"d"`
-	Version     bool   `help:"Show version information." short:"v"`
-	Interactive bool   `help:"Run in interactive mode, allowing direct JSON input with Ctrl+D to process." short:"I"`
+	Input       string   `help:"Path to input JSON file. If not specified, reads from stdin." short:"i" type:"path"`
+	Sample      []string `help:"Sample file to merge; repeat for multiple files. Cannot be combined with --input, --url, --schema or --interactive." type:"path" sep:"none"`
+	NDJSON      bool     `help:"Read one JSON value per nonblank line from the selected input sources."`
+	URL         string   `help:"URL to fetch JSON from. Supports http and https." short:"u"`
+	Schema      string   `help:"Path or URL to JSON Schema file. Generates structs from schema instead of sample JSON." short:"s"`
+	Output      string   `help:"Path to output Go file. If not specified, writes to stdout." short:"o" type:"path"`
+	Package     string   `help:"Package name for generated code." short:"p" default:"main"`
+	RootName    string   `help:"Name for the root struct." short:"r" default:"RootType"`
+	Config      string   `help:"Path to config file. If not specified, searches for .gotyper.yml in current and parent directories." short:"c" type:"path"`
+	Format      bool     `help:"Format the output code according to Go standards." short:"f" default:"true"`
+	Debug       bool     `help:"Enable debug logging." short:"d"`
+	Version     bool     `help:"Show version information." short:"v"`
+	Interactive bool     `help:"Run in interactive mode, allowing direct JSON input with Ctrl+D to process." short:"I"`
 }
 
 // Context holds the runtime context
@@ -181,9 +183,9 @@ func run(ctx *Context) error {
 // parseSchema reads and converts a JSON Schema from file or URL
 func parseSchema(rootName string) (models.AnalysisResult, error) {
 	// Check for conflicting input sources
-	if CLI.Input != "" || CLI.URL != "" {
+	if CLI.Input != "" || CLI.URL != "" || len(CLI.Sample) > 0 || CLI.NDJSON {
 		return models.AnalysisResult{}, errors.NewInputError(
-			"cannot specify --schema with --input or --url", nil)
+			"cannot specify --schema with --input, --url, --sample or --ndjson", nil)
 	}
 
 	var s *schema.Schema
@@ -261,9 +263,28 @@ func parseInput() (models.IntermediateRepresentation, error) {
 		return models.IntermediateRepresentation{}, errors.NewInputError("cannot specify both --input and --url", nil)
 	}
 
+	if len(CLI.Sample) > 0 {
+		if CLI.Input != "" || CLI.URL != "" || CLI.Interactive {
+			return models.IntermediateRepresentation{}, errors.NewInputError("cannot specify --sample with --input, --url or --interactive", nil)
+		}
+		var samples models.JSONArray
+		for _, path := range CLI.Sample {
+			ir, err := parseInputFile(path)
+			if err != nil {
+				return models.IntermediateRepresentation{}, err
+			}
+			if CLI.NDJSON {
+				samples = append(samples, ir.Root.(models.JSONArray)...)
+			} else {
+				samples = append(samples, ir.Root)
+			}
+		}
+		return models.IntermediateRepresentation{Root: samples, RootIsArray: true}, nil
+	}
+
 	if CLI.Input != "" {
 		// Parse from file
-		return parser.ParseFile(CLI.Input)
+		return parseInputFile(CLI.Input)
 	}
 
 	if CLI.URL != "" {
@@ -298,7 +319,37 @@ func parseInput() (models.IntermediateRepresentation, error) {
 		return models.IntermediateRepresentation{}, errors.NewInputError("empty input received from stdin", errors.ErrEmptyInput)
 	}
 
-	return parser.ParseString(string(jsonData))
+	return parseJSONInput(strings.NewReader(string(jsonData)), "stdin")
+}
+
+func parseInputFile(path string) (models.IntermediateRepresentation, error) {
+	if !CLI.NDJSON {
+		ir, err := parser.ParseFile(path)
+		if err != nil {
+			return models.IntermediateRepresentation{}, errors.NewInputError(fmt.Sprintf("%s: %s", path, errors.UserFriendlyError(err)), err)
+		}
+		return ir, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return models.IntermediateRepresentation{}, errors.NewInputError(fmt.Sprintf("%s: %v", path, err), err)
+	}
+	defer func() { _ = file.Close() }()
+	return parseJSONInput(file, path)
+}
+
+func parseJSONInput(reader io.Reader, source string) (models.IntermediateRepresentation, error) {
+	var ir models.IntermediateRepresentation
+	var err error
+	if CLI.NDJSON {
+		ir, err = parser.ParseNDJSON(reader)
+	} else {
+		ir, err = parser.Parse(reader)
+	}
+	if err != nil {
+		return models.IntermediateRepresentation{}, errors.NewParsingError(fmt.Sprintf("%s: %s", source, errors.UserFriendlyError(err)), err)
+	}
+	return ir, nil
 }
 
 // writeOutput writes code to file or stdout
@@ -349,7 +400,7 @@ func readInteractiveInput() (models.IntermediateRepresentation, error) {
 	}
 
 	fmt.Fprintln(os.Stderr, "\nProcessing JSON...")
-	return parser.ParseString(jsonData)
+	return parseJSONInput(strings.NewReader(jsonData), "stdin")
 }
 
 // fetchFromURL fetches JSON from a URL and parses it
@@ -403,5 +454,5 @@ func fetchFromURL(urlStr string) (models.IntermediateRepresentation, error) {
 			fmt.Sprintf("empty response from URL: %s", urlStr), errors.ErrEmptyInput)
 	}
 
-	return parser.ParseString(string(body))
+	return parseJSONInput(strings.NewReader(string(body)), urlStr)
 }

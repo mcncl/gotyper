@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,23 +46,12 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 		return models.IntermediateRepresentation{}, errors.NewParsingError("failed to decode JSON", err)
 	}
 
-	// Check for trailing data after the first JSON value.
-	// If decoder.More() is true, or if another Decode call doesn't return io.EOF,
-	// it means there's more than one JSON value.
-	if decoder.More() {
-		// Attempt to decode again to see if it's just whitespace or actual data
-		var trailingValue interface{}
-		if err := decoder.Decode(&trailingValue); err != nil {
-			if !stderrors.Is(err, io.EOF) { // If it's not EOF, it's an error with the trailing data
-				// This could be a syntax error in the trailing part.
-				return models.IntermediateRepresentation{}, errors.NewParsingError("invalid trailing data after first JSON value", err)
-			}
-			// If it is io.EOF here, it means only whitespace followed the first JSON value, which is often allowed.
-			// However, strict JSON parsers might disallow this. For now, we'll consider it okay if what follows is just whitespace leading to EOF.
-		} else {
-			// If another value was successfully decoded, then there are multiple JSON values.
-			return models.IntermediateRepresentation{}, errors.NewParsingError("multiple JSON values found at the root", errors.ErrMultipleJSON)
-		}
+	// A second decode must reach EOF, including when trailing data is ']' or '}'.
+	var trailingValue interface{}
+	if err := decoder.Decode(&trailingValue); err == nil {
+		return models.IntermediateRepresentation{}, errors.NewParsingError("multiple JSON values found at the root", errors.ErrMultipleJSON)
+	} else if !stderrors.Is(err, io.EOF) {
+		return models.IntermediateRepresentation{}, errors.NewParsingError("invalid trailing data after first JSON value", err)
 	}
 
 	rootValue = normalizeJSONValue(rootValue) // Normalize the root value
@@ -85,6 +75,34 @@ func Parse(reader io.Reader) (models.IntermediateRepresentation, error) {
 	}
 
 	return ir, nil
+}
+
+// ParseNDJSON parses one JSON value per nonblank line as array-element samples.
+func ParseNDJSON(reader io.Reader) (models.IntermediateRepresentation, error) {
+	buffered := bufio.NewReader(reader)
+	var samples models.JSONArray
+	for lineNumber := 1; ; lineNumber++ {
+		line, err := buffered.ReadString('\n')
+		if err != nil && !stderrors.Is(err, io.EOF) {
+			return models.IntermediateRepresentation{}, errors.NewInputError(
+				fmt.Sprintf("failed to read record %d (line %d): %v", len(samples)+1, lineNumber, err), err)
+		}
+		if strings.TrimSpace(line) != "" {
+			ir, parseErr := ParseString(line)
+			if parseErr != nil {
+				return models.IntermediateRepresentation{}, errors.NewParsingError(
+					fmt.Sprintf("record %d (line %d): %s", len(samples)+1, lineNumber, errors.UserFriendlyError(parseErr)), parseErr)
+			}
+			samples = append(samples, ir.Root)
+		}
+		if stderrors.Is(err, io.EOF) {
+			break
+		}
+	}
+	if len(samples) == 0 {
+		return models.IntermediateRepresentation{}, errors.NewParsingError("no JSON records found", errors.ErrEmptyInput)
+	}
+	return models.IntermediateRepresentation{Root: samples, RootIsArray: true}, nil
 }
 
 // normalizeJSONValue converts raw JSON types into our model types
