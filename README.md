@@ -76,6 +76,33 @@ gotyper
   -I, --interactive      Run in interactive mode, allowing direct JSON input with Ctrl+D to process.
 ```
 
+### Sample merging
+
+Array elements are samples of one element type. Reordering samples does not
+change the generated types. The same rules apply recursively to object fields
+and nested arrays:
+
+- Integers use `int64`. Decimal or exponent notation, or an integer outside the
+  `int64` range, uses `float64`. Mixing these numeric types uses `float64`, with
+  its usual precision and range limits.
+- A field absent from any object sample, or explicitly `null`, is optional and
+  uses a pointer. Missing and null both decode to nil; they are not distinguished.
+- Null does not override a known type. Null-only values use `interface{}`.
+- Object samples merge their fields. Array samples merge all their elements at
+  each depth, preserving dimensions. Empty arrays add no element-type evidence;
+  arrays with no known elements use `[]interface{}`.
+- Incompatible types, such as an object and a number, use `interface{}` at the
+  conflicting position. Mixed primitive arrays therefore use `[]interface{}`.
+  Values decoded into interfaces follow the standard `encoding/json` rules.
+- Strings detected as special types keep that type only if all non-null string
+  samples agree. Otherwise, they use `string`.
+- Configured type mappings override inference. The configured type must support
+  decoding the supplied values. Skipped fields are excluded before inference.
+
+Structs and slice fields keep their existing pointer convention. Null slice
+elements use pointers for scalar values and structs; slices and interfaces can
+represent null directly. JSON tag options still follow configuration.
+
 ## Configuration Files
 
 GoTyper supports YAML configuration files for advanced customization. The tool automatically searches for `.gotyper.yml`, `.gotyper.yaml`, `gotyper.yml`, or `gotyper.yaml` in the current directory and parent directories.

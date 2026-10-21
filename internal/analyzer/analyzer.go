@@ -187,7 +187,7 @@ func (a *Analyzer) analyzeNode(node models.JSONValue, suggestedName string, isRo
 	case models.JSONObject: // map[string]interface{}
 		return a.analyzeObject(v, suggestedName, isRootNode, isArrayElement)
 	case models.JSONArray: // []interface{}
-		return a.analyzeArray(v, suggestedName, isArrayElement)
+		return a.analyzeArray(v, suggestedName, isRootNode)
 	default:
 		return models.TypeInfo{}, fmt.Errorf("unexpected json value type: %T", v)
 	}
@@ -409,6 +409,9 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 	sort.Strings(keys) // Sort keys alphabetically
 
 	for _, key := range keys {
+		if a.config.ShouldSkipField(key) {
+			continue
+		}
 		val := obj[key]
 		goFieldName := a.getFieldName(key)
 
@@ -422,11 +425,6 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 			// Add import if specified
 			if mapping.Import != "" {
 				a.analysisResult.Imports[mapping.Import] = struct{}{}
-			}
-
-			// Check if field should be skipped completely
-			if a.config.ShouldSkipField(key) {
-				continue // Skip this field entirely
 			}
 
 			// Handle nullable fields: if original JSON value was null, make it a pointer
@@ -458,11 +456,6 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 			return models.TypeInfo{}, fmt.Errorf("failed to analyze field '%s' in object '%s': %w", key, structName, err)
 		}
 
-		// Check if field should be skipped completely
-		if a.config.ShouldSkipField(key) {
-			continue // Skip this field entirely
-		}
-
 		// Handle nullable fields: if original JSON value was null, or if it's an object/array that could be null.
 		if val == nil || fieldTypeInfo.Kind == models.Struct || fieldTypeInfo.Kind == models.Slice || fieldTypeInfo.Kind == models.Interface {
 			fieldTypeInfo.IsPointer = true
@@ -487,145 +480,27 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 	return typeInfo, nil
 }
 
-func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName string, isArrayElement bool) (models.TypeInfo, error) {
-	if len(arr) == 0 {
-		// Empty array defaults to []interface{}
-		elementType := models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: false}
-		return models.TypeInfo{Kind: models.Slice, Name: "[]interface{}", SliceElementType: &elementType, IsPointer: true}, nil
-	}
-
+func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName string, isRootArray bool) (models.TypeInfo, error) {
 	// Suggested name for elements of an array should be singularized form of the array's suggested name.
 	elementSuggestedName := singularize(a.getFieldName(suggestedElementName), a.config.Naming.CustomSingulars)
-
-	// Check if this is a root array (if the suggested name is already in structNames with count 1)
-	// For root arrays in tests like TestAnalyze_ArrayOfObjects, we want to preserve the exact name
-	isRootArray := a.structNames[elementSuggestedName] == 1
-
-	// Special handling for arrays of objects - we'll try to merge them into a single struct type
-	// First, check if all elements are objects
-	allObjects := true
-	objectElements := make([]models.JSONObject, 0, len(arr))
-	for _, element := range arr {
-		if obj, ok := element.(models.JSONObject); ok {
-			objectElements = append(objectElements, obj)
-		} else {
-			allObjects = false
-			break
-		}
+	// Analyze reserves the requested root name, which may still be plural.
+	// Reserve the element name before a descendant can claim it.
+	if isRootArray && a.structNames[elementSuggestedName] == 0 {
+		a.structNames[elementSuggestedName] = 1
 	}
-
-	// If all elements are objects, try to merge them into a single struct
-	if allObjects && len(objectElements) > 0 {
-		// Create a merged struct definition with fields from all objects
-		mergedStructDef, err := a.createMergedStructDef(objectElements, elementSuggestedName)
-		if err != nil {
-			return models.TypeInfo{}, fmt.Errorf("failed to create merged struct definition: %w", err)
-		}
-
-		// Add the merged struct to our results
-		typeInfo := a.findOrAddStructDef(mergedStructDef, elementSuggestedName, isRootArray, true)
-
-		// For structs, prefer pointer elements in slices (common Go practice)
-		sliceName := "[]*" + typeInfo.Name
-		pointerElementInfo := typeInfo
-		pointerElementInfo.IsPointer = true
-
-		return models.TypeInfo{
-			Kind:             models.Slice,
-			Name:             sliceName,
-			SliceElementType: &pointerElementInfo,
-			IsPointer:        true,
-		}, nil
+	element, err := a.analyzeSamples(arr, elementSuggestedName, isRootArray, true)
+	if err != nil {
+		return models.TypeInfo{}, err
 	}
-
-	// If not all elements are objects or we couldn't merge them, fall back to the original approach
-	// Analyze all elements to determine if they share a common type
-	elementInfos := make([]models.TypeInfo, len(arr))
-	for i, element := range arr {
-		// For the first element of a root array, pass isRootNode=true to preserve the name
-		// For subsequent elements or non-root arrays, pass isRootNode=false
-		isRootElement := isRootArray && i == 0
-		// Always set isArrayElement=true for array elements
-		typeInfo, err := a.analyzeNode(element, elementSuggestedName, isRootElement, true)
-		if err != nil {
-			return models.TypeInfo{}, fmt.Errorf("failed to analyze element %d of array '%s': %w", i, suggestedElementName, err)
-		}
-		elementInfos[i] = typeInfo
+	// Slices and interfaces already represent null without a pointer element.
+	if element.Kind == models.Slice || element.Kind == models.Interface {
+		element.IsPointer = false
 	}
-
-	// Handle deeply nested arrays by flattening the type representation
-	if len(elementInfos) > 0 && elementInfos[0].Kind == models.Slice {
-		// Check if all elements are slices
-		allSlices := true
-		for _, info := range elementInfos {
-			if info.Kind != models.Slice {
-				allSlices = false
-				break
-			}
-		}
-
-		if allSlices {
-			// Preserve the inner slice so the generated type retains every dimension.
-			innerSliceType := elementInfos[0]
-			if innerSliceType.SliceElementType != nil {
-				// A nested slice is an element here, not an optional struct field.
-				innerSliceType.IsPointer = false
-				// Create a multi-dimensional slice type
-				return models.TypeInfo{
-					Kind:             models.Slice,
-					Name:             "[]" + elementInfos[0].Name,
-					SliceElementType: &innerSliceType,
-					IsPointer:        true,
-				}, nil
-			}
-		}
+	name := element.Name
+	if element.IsPointer {
+		name = "*" + name
 	}
-
-	// Check if all elements have the same type
-	firstElementInfo := elementInfos[0]
-	isHomogeneous := true
-	for i := 1; i < len(elementInfos); i++ {
-		currentElementInfo := elementInfos[i]
-		// Compare types using our helper function
-		if !areTypeInfosEqual(&firstElementInfo, &currentElementInfo) {
-			isHomogeneous = false
-			break
-		}
-	}
-
-	if isHomogeneous {
-		// For a homogeneous array, use the first element's type info
-		sliceName := "[]" + firstElementInfo.Name
-		// For structs, prefer pointer elements in slices (common Go practice)
-		if firstElementInfo.Kind == models.Struct {
-			sliceName = "[]*" + firstElementInfo.Name
-			// Create a copy of firstElementInfo with IsPointer set to true for the slice element
-			pointerElementInfo := firstElementInfo
-			pointerElementInfo.IsPointer = true
-			return models.TypeInfo{
-				Kind:             models.Slice,
-				Name:             sliceName,
-				SliceElementType: &pointerElementInfo,
-				IsPointer:        true,
-			}, nil
-		} else if firstElementInfo.IsPointer {
-			sliceName = "[]*" + firstElementInfo.Name
-		}
-		return models.TypeInfo{
-			Kind:             models.Slice,
-			Name:             sliceName,
-			SliceElementType: &firstElementInfo,
-			IsPointer:        true,
-		}, nil
-	}
-
-	// Heterogeneous array - default to []interface{}
-	return models.TypeInfo{
-		Kind:             models.Slice,
-		Name:             "[]interface{}",
-		SliceElementType: &models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: false},
-		IsPointer:        true,
-	}, nil
+	return models.TypeInfo{Kind: models.Slice, Name: "[]" + name, SliceElementType: &element, IsPointer: true}, nil
 }
 
 // generateUniqueStructName ensures that the struct name is unique by appending a number if needed.
@@ -1038,130 +913,134 @@ func areStructDefsEquivalent(s1, s2 *models.StructDef) bool {
 // createMergedStructDef creates a struct definition that merges fields from multiple JSON objects.
 // This is particularly useful for array elements that may have slightly different fields.
 func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedName string) (models.StructDef, error) {
-	// Create a map to track all unique fields across all objects
-	allFields := make(map[string]models.FieldInfo)
-
-	// Track nested object fields that need merging
-	nestedObjectFields := make(map[string][]models.JSONObject)
-
-	// Process each object and collect all unique fields
+	samples := make(map[string][]models.JSONValue)
 	for _, obj := range objects {
-		// Extract keys and sort them for deterministic processing
-		keys := make([]string, 0, len(obj))
-		for k := range obj {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		// Process each field in the object
-		for _, key := range keys {
-			val := obj[key]
-			goFieldName := a.getFieldName(key)
-			// For nested structs, suggest a name based on the current struct name and field name
-			nestedStructSuggestedName := suggestedName + goFieldName
-
-			// Special handling for nested objects that might need merging
-			if nestedObj, isObject := val.(models.JSONObject); isObject {
-				// Add this nested object to our tracking map for later merging
-				if _, exists := nestedObjectFields[key]; !exists {
-					nestedObjectFields[key] = make([]models.JSONObject, 0)
-				}
-				nestedObjectFields[key] = append(nestedObjectFields[key], nestedObj)
-
-				// We'll process this field after collecting all instances
-				continue
-			}
-
-			// For non-object fields, process normally
-			fieldTypeInfo, err := a.analyzeNode(val, nestedStructSuggestedName, false, false)
-			if err != nil {
-				return models.StructDef{}, fmt.Errorf("failed to analyze field '%s' in merged object: %w", key, err)
-			}
-
-			// Check if field should be skipped completely
-			if a.config.ShouldSkipField(key) {
-				continue // Skip this field entirely
-			}
-
-			// Handle nullable fields
-			if val == nil || fieldTypeInfo.Kind == models.Struct || fieldTypeInfo.Kind == models.Slice || fieldTypeInfo.Kind == models.Interface {
-				fieldTypeInfo.IsPointer = true
-			}
-
-			// Generate enhanced tags
-			jsonTag, tags, comment := a.generateFieldTags(key, fieldTypeInfo, val)
-
-			// Create field info
-			fieldInfo := models.FieldInfo{
-				JSONKey: key,
-				GoName:  goFieldName,
-				GoType:  fieldTypeInfo,
-				JSONTag: jsonTag,
-				Tags:    tags,
-				Comment: comment,
-			}
-
-			// Add to our map of all fields
-			allFields[key] = fieldInfo
+		for key, val := range obj {
+			samples[key] = append(samples[key], val)
 		}
 	}
-
-	// Now process all the nested object fields we collected
-	for key, nestedObjects := range nestedObjectFields {
-		if len(nestedObjects) > 0 {
-			goFieldName := a.getFieldName(key)
-			nestedStructSuggestedName := suggestedName + goFieldName
-
-			// Create a merged struct for this nested field
-			mergedNestedStruct, err := a.createMergedStructDef(nestedObjects, nestedStructSuggestedName)
-			if err != nil {
-				return models.StructDef{}, fmt.Errorf("failed to create merged struct for nested field '%s': %w", key, err)
-			}
-
-			// Add the merged struct to our results
-			typeInfo := a.findOrAddStructDef(mergedNestedStruct, nestedStructSuggestedName, false, false)
-
-			// Make it a pointer since it's a nested object
-			typeInfo.IsPointer = true
-
-			// Generate enhanced tags
-			jsonTag, tags, comment := a.generateFieldTags(key, typeInfo, nil)
-
-			// Create field info for this nested object
-			fieldInfo := models.FieldInfo{
-				JSONKey: key,
-				GoName:  goFieldName,
-				GoType:  typeInfo,
-				JSONTag: jsonTag,
-				Tags:    tags,
-				Comment: comment,
-			}
-
-			// Add to our map of all fields
-			allFields[key] = fieldInfo
-		}
-	}
-
-	// Convert the map of fields to a slice
-	fields := make([]models.FieldInfo, 0, len(allFields))
-	// Extract keys and sort them for deterministic field order
-	keys := make([]string, 0, len(allFields))
-	for k := range allFields {
-		keys = append(keys, k)
+	keys := make([]string, 0, len(samples))
+	for key := range samples {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	// Add fields in sorted order
+	fields := make([]models.FieldInfo, 0, len(keys))
 	for _, key := range keys {
-		fields = append(fields, allFields[key])
+		if a.config.ShouldSkipField(key) {
+			continue
+		}
+		values := samples[key]
+		optional := len(values) < len(objects)
+		for _, value := range values {
+			optional = optional || value == nil
+		}
+		var info models.TypeInfo
+		if mapping, found := a.checkTypeMapping(key); found {
+			info = models.TypeInfo{Kind: models.String, Name: mapping.Type}
+			if mapping.Import != "" {
+				a.analysisResult.Imports[mapping.Import] = struct{}{}
+			}
+		} else {
+			var err error
+			info, err = a.analyzeSamples(values, suggestedName+a.getFieldName(key), false, false)
+			if err != nil {
+				return models.StructDef{}, fmt.Errorf("failed to analyze field '%s' in merged object: %w", key, err)
+			}
+		}
+		info.IsPointer = info.IsPointer || optional
+		jsonTag, tags, comment := a.generateFieldTags(key, info, nil)
+		fields = append(fields, models.FieldInfo{
+			JSONKey: key, GoName: a.getFieldName(key), GoType: info,
+			JSONTag: jsonTag, Tags: tags, Comment: comment,
+		})
 	}
+	return models.StructDef{Name: suggestedName, Fields: fields}, nil
+}
 
-	// Create the merged struct definition
-	return models.StructDef{
-		Name:   suggestedName, // This is just a suggestion, will be finalized by findOrAddStructDef
-		Fields: fields,
-		IsRoot: false, // Array elements are never root structs
-	}, nil
+// analyzeSamples merges observations before generating structs or imports, so
+// incompatible samples cannot leave unused declarations behind.
+func (a *Analyzer) analyzeSamples(values []models.JSONValue, suggestedName string, isRoot, isArrayElement bool) (models.TypeInfo, error) {
+	fallback := models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}
+	var kind models.GoTypeKind
+	var objects []models.JSONObject
+	var elements models.JSONArray
+	var primitives []models.JSONValue
+	nullable := false
+	conflict := false
+	for _, value := range values {
+		var current models.GoTypeKind
+		switch v := value.(type) {
+		case nil:
+			nullable = true
+			continue
+		case models.JSONObject:
+			current = models.Struct
+			objects = append(objects, v)
+		case models.JSONArray:
+			current = models.Slice
+			elements = append(elements, v...)
+		case json.Number:
+			current = models.Int
+			primitives = append(primitives, v)
+		case string:
+			current = models.String
+			primitives = append(primitives, v)
+		case bool:
+			current = models.Bool
+			primitives = append(primitives, v)
+		default:
+			return models.TypeInfo{}, fmt.Errorf("unexpected json value type: %T", v)
+		}
+		if kind != "" && kind != current {
+			conflict = true
+		}
+		kind = current
+	}
+	if conflict || kind == "" {
+		return fallback, nil
+	}
+	switch kind {
+	case models.Struct:
+		def, err := a.createMergedStructDef(objects, suggestedName)
+		if err != nil {
+			return models.TypeInfo{}, err
+		}
+		info := a.findOrAddStructDef(def, suggestedName, isRoot, isArrayElement)
+		info.IsPointer = true
+		return info, nil
+	case models.Slice:
+		return a.analyzeArray(elements, suggestedName, isRoot)
+	default:
+		// Special-type detection can add imports. Keep those effects local until
+		// all observations agree on the special type.
+		probe := NewAnalyzerWithConfig(a.config)
+		var result models.TypeInfo
+		for _, value := range primitives {
+			info, err := probe.analyzeNode(value, suggestedName, false, false)
+			if err != nil {
+				return models.TypeInfo{}, err
+			}
+			if result.Kind == "" {
+				result = info
+			} else if result.Kind != info.Kind {
+				switch {
+				case kind == models.String:
+					result = models.TypeInfo{Kind: models.String, Name: "string"}
+				case (result.Kind == models.Int && info.Kind == models.Float) || (result.Kind == models.Float && info.Kind == models.Int):
+					result = models.TypeInfo{Kind: models.Float, Name: "float64"}
+				default:
+					return fallback, nil
+				}
+			}
+		}
+		if result.Kind == models.Time {
+			a.analysisResult.Imports["time"] = struct{}{}
+			a.analysisResult.UsedDefaultDateFormat = a.analysisResult.UsedDefaultDateFormat || probe.analysisResult.UsedDefaultDateFormat
+		}
+		result.IsPointer = nullable
+		return result, nil
+	}
 }
 
 // findOrAddStructDef checks if an equivalent struct definition already exists.
