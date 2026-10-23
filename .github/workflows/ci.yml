@@ -71,7 +71,7 @@ jobs:
       - name: Run staticcheck
         shell: bash
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
           "$(go env GOPATH)/bin/staticcheck" ./...
 
   build:
