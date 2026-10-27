@@ -4,7 +4,7 @@
 # Explicit --package, --root-name, and --format flags override these settings,
 # even when set to CLI defaults. Omitted flags honor this file.
 # Settings below apply to samples and JSON Schema unless noted otherwise.
-# See README.md "Compatibility settings" for accepted legacy defaults and no-ops.
+# See docs/reference.md "Compatibility settings" for legacy defaults and no-ops.
 
 # Default package name for generated structs
 package: "models"
