@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mcncl/gotyper/internal/config"
 	"github.com/mcncl/gotyper/internal/models"
 )
 
@@ -182,6 +183,7 @@ func ParseString(s string) (*Schema, error) {
 
 // Converter converts JSON Schema to Go struct definitions
 type Converter struct {
+	config      *config.Config
 	schema      *Schema
 	structs     []models.StructDef
 	imports     map[string]struct{}
@@ -193,7 +195,13 @@ type Converter struct {
 
 // NewConverter creates a new schema converter
 func NewConverter(schema *Schema) *Converter {
+	return NewConverterWithConfig(schema, config.NewConfig())
+}
+
+// NewConverterWithConfig creates a converter with field customization settings.
+func NewConverterWithConfig(schema *Schema, cfg *config.Config) *Converter {
 	return &Converter{
+		config:      cfg,
 		schema:      schema,
 		structs:     make([]models.StructDef, 0),
 		imports:     make(map[string]struct{}),
@@ -217,14 +225,14 @@ func (c *Converter) Convert(rootName string) (models.AnalysisResult, error) {
 	}
 
 	// Clean up the root name
-	rootName = toPascalCase(rootName)
+	rootName = c.config.GetFieldName(rootName)
 	if !token.IsIdentifier(rootName) {
 		return models.AnalysisResult{}, fmt.Errorf("unsupported Go type name %q", rootName)
 	}
 	c.generateUniqueName(rootName) // Reserve the root declaration before its dependencies.
 
 	// Convert the root schema
-	typeInfo, err := c.convertSchema(c.schema, rootName, true)
+	typeInfo, err := c.convertSchema(c.schema, rootName, true, false)
 	if err != nil {
 		return models.AnalysisResult{}, fmt.Errorf("failed to convert schema: %w", err)
 	}
@@ -240,9 +248,10 @@ func (c *Converter) Convert(rootName string) (models.AnalysisResult, error) {
 }
 
 // convertSchema recursively converts a schema to Go types
-func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot bool) (result models.TypeInfo, err error) {
+func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot, isField bool) (result models.TypeInfo, err error) {
 	defer func() {
-		if schema.Nullable || schema.Type.IsNullable() {
+		// Field pointer opt-outs must not erase nulls in array elements or map values.
+		if (!isField || c.config.Types.OptionalAsPointers) && (schema.Nullable || schema.Type.IsNullable()) {
 			result.IsPointer = true
 		}
 	}()
@@ -271,7 +280,7 @@ func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot b
 		if err != nil {
 			return models.TypeInfo{}, err
 		}
-		return c.convertSchema(target, name, false)
+		return c.convertSchema(target, name, false, isField)
 	}
 
 	// Handle allOf by merging schemas
@@ -317,7 +326,7 @@ func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot b
 			value := models.TypeInfo{Kind: models.Interface, Name: "interface{}"}
 			if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
 				var err error
-				value, err = c.convertSchema(schema.AdditionalProperties.Schema, suggestedName+"Value", false)
+				value, err = c.convertSchema(schema.AdditionalProperties.Schema, suggestedName+"Value", false, false)
 				if err != nil {
 					return models.TypeInfo{}, fmt.Errorf("additionalProperties: %w", err)
 				}
@@ -336,7 +345,7 @@ func (c *Converter) convertSchema(schema *Schema, suggestedName string, isRoot b
 	case "boolean":
 		return models.TypeInfo{Kind: models.Bool, Name: "bool"}, nil
 	case "null":
-		return models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: true}, nil
+		return models.TypeInfo{Kind: models.Interface, Name: "interface{}", IsPointer: !isField || c.config.Types.OptionalAsPointers}, nil
 	default:
 		// Unknown or missing type - default to interface{}
 		return models.TypeInfo{Kind: models.Interface, Name: "interface{}"}, nil
@@ -378,10 +387,13 @@ func (c *Converter) convertObject(schema *Schema, structName string, isRoot bool
 	fieldNames := make(map[string]bool)
 
 	for _, propName := range propNames {
+		if c.config.ShouldSkipField(propName) {
+			continue
+		}
 		propSchema := schema.Properties[propName]
 
 		// Generate field name
-		goFieldName := toPascalCase(propName)
+		goFieldName := c.config.GetFieldName(propName)
 		if !token.IsIdentifier(goFieldName) || fieldNames[goFieldName] {
 			return models.TypeInfo{}, fmt.Errorf("unsupported or conflicting Go field name %q for property %q", goFieldName, propName)
 		}
@@ -389,18 +401,26 @@ func (c *Converter) convertObject(schema *Schema, structName string, isRoot bool
 
 		// Convert property schema to type
 		nestedName := finalName + goFieldName
-		typeInfo, err := c.convertSchema(propSchema, nestedName, false)
-		if err != nil {
-			return models.TypeInfo{}, fmt.Errorf("failed to convert property %s: %w", propName, err)
+		var typeInfo models.TypeInfo
+		if mapping, found := c.config.FindTypeMapping(propName); found {
+			typeInfo = models.TypeInfo{Kind: models.String, Name: mapping.Type}
+			if mapping.Import != "" {
+				c.imports[mapping.Import] = struct{}{}
+			}
+		} else {
+			var err error
+			typeInfo, err = c.convertSchema(propSchema, nestedName, false, true)
+			if err != nil {
+				return models.TypeInfo{}, fmt.Errorf("failed to convert property %s: %w", propName, err)
+			}
 		}
 
 		// Determine if field is optional (pointer)
 		// Field is pointer if: not required, OR explicitly nullable, OR type includes "null"
 		isRequired := requiredSet[propName]
-		if !isRequired || propSchema.Nullable || propSchema.Type.IsNullable() {
+		if c.config.Types.OptionalAsPointers && (!isRequired || propSchema.Nullable || propSchema.Type.IsNullable()) {
 			typeInfo.IsPointer = true
 		}
-
 		// Generate tags
 		jsonTag, tags, comment := c.generateFieldTags(propName, propSchema, typeInfo, isRequired)
 
@@ -437,8 +457,8 @@ func (c *Converter) convertArray(schema *Schema, suggestedName string) (models.T
 
 	if schema.Items != nil {
 		// Singularize name for array element
-		elementName := singularize(suggestedName)
-		elementType, err = c.convertSchema(schema.Items, elementName, false)
+		elementName := c.config.ArrayElementName(suggestedName, singularize)
+		elementType, err = c.convertSchema(schema.Items, elementName, false, false)
 		if err != nil {
 			return models.TypeInfo{}, fmt.Errorf("failed to convert array items: %w", err)
 		}
@@ -459,7 +479,7 @@ func (c *Converter) convertArray(schema *Schema, suggestedName string) (models.T
 		Kind:             models.Slice,
 		Name:             sliceName,
 		SliceElementType: &elementType,
-		IsPointer:        true, // Slices are nullable by default
+		IsPointer:        c.config.Types.OptionalAsPointers,
 	}, nil
 }
 
@@ -515,7 +535,7 @@ func (c *Converter) refSchema(ref string) (*Schema, string, error) {
 		definitions = c.schema.Defs
 	}
 	if target := definitions[name]; target != nil {
-		return target, toPascalCase(name), nil
+		return target, c.config.GetFieldName(name), nil
 	}
 	return nil, "", fmt.Errorf("unresolved $ref: %s", ref)
 }
@@ -559,16 +579,6 @@ func (c *Converter) mergeAllOf(s *Schema, active map[*Schema]bool) (*Schema, err
 
 // generateFieldTags creates tags for a field based on schema
 func (c *Converter) generateFieldTags(jsonKey string, schema *Schema, typeInfo models.TypeInfo, isRequired bool) (string, map[string]string, string) {
-	tags := make(map[string]string)
-	var comment string
-
-	// JSON tag
-	jsonTagValue := jsonKey
-	if typeInfo.IsPointer {
-		jsonTagValue += ",omitempty"
-	}
-	tags["json"] = jsonTagValue
-
 	// Build validation tag parts
 	var validationParts []string
 
@@ -606,23 +616,11 @@ func (c *Converter) generateFieldTags(jsonKey string, schema *Schema, typeInfo m
 		validationParts = append(validationParts, fmt.Sprintf("max=%d", *schema.MaxItems))
 	}
 
-	// Build final tag string
-	var tagParts []string
-	tagParts = append(tagParts, fmt.Sprintf("json:\"%s\"", jsonTagValue))
-
+	var validation string
 	if len(validationParts) > 0 {
-		validateTag := strings.Join(validationParts, ",")
-		tags["validate"] = validateTag
-		tagParts = append(tagParts, fmt.Sprintf("validate:\"%s\"", validateTag))
+		validation = fmt.Sprintf("validate:%q", strings.Join(validationParts, ","))
 	}
-
-	// Use description as comment
-	if schema.Description != "" {
-		comment = schema.Description
-	}
-
-	finalTag := "`" + strings.Join(tagParts, " ") + "`"
-	return finalTag, tags, comment
+	return c.config.FieldTags(jsonKey, typeInfo, validation, schema.Description)
 }
 
 // generateUniqueName ensures struct names are unique

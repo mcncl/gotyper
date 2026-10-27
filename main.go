@@ -33,7 +33,7 @@ var CLI struct {
 	RootName    string   `help:"Name for the root struct." short:"r" default:"RootType"`
 	Config      string   `help:"Path to config file. If not specified, searches for .gotyper.yml in current and parent directories." short:"c" type:"path"`
 	Format      bool     `help:"Format the output code according to Go standards." short:"f" default:"true"`
-	Debug       bool     `help:"Enable debug logging." short:"d"`
+	Debug       bool     `help:"Unsupported legacy flag; debug logging is not implemented." short:"d"`
 	Version     bool     `help:"Show version information." short:"v"`
 	Interactive bool     `help:"Run in interactive mode, allowing direct JSON input with Ctrl+D to process." short:"I"`
 }
@@ -63,7 +63,7 @@ func main() {
 			CLI.Package = "main"
 		}
 		// When no args provided, run directly without parsing arguments
-		ctx, err := createContext()
+		ctx, err := createContext(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
 			os.Exit(1)
@@ -82,7 +82,7 @@ func main() {
 	}
 
 	// Parse the command line arguments
-	_, err := parser.Parse(os.Args[1:])
+	cliContext, err := parser.Parse(os.Args[1:])
 	if err != nil {
 		// If there's an error parsing arguments, the usage will already be shown by kong.UsageOnError()
 		os.Exit(1)
@@ -94,7 +94,7 @@ func main() {
 		return
 	}
 
-	ctx, err := createContext()
+	ctx, err := createContext(cliContext)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", errors.UserFriendlyError(err))
 		os.Exit(1)
@@ -115,7 +115,10 @@ func main() {
 }
 
 // createContext loads configuration and creates a runtime context
-func createContext() (*Context, error) {
+func createContext(cliContext *kong.Context) (*Context, error) {
+	if CLI.Debug {
+		return nil, errors.NewInputError("--debug is unsupported; debug logging is not implemented", nil)
+	}
 	// Determine config file path
 	configPath := CLI.Config
 	if configPath == "" {
@@ -123,10 +126,33 @@ func createContext() (*Context, error) {
 		configPath = config.FindConfigFile()
 	}
 
-	// Load configuration with CLI precedence
-	cfg, err := config.LoadConfigWithCLI(configPath, CLI.Package, CLI.RootName, false)
+	// Kong's path records flags actually supplied, including default-valued ones.
+	var cliPackage, cliRootName string
+	formatSet := false
+	if cliContext != nil {
+		for _, path := range cliContext.Path {
+			if path.Flag == nil {
+				continue
+			}
+			switch path.Flag.Name {
+			case "package":
+				cliPackage = CLI.Package
+			case "root-name":
+				cliRootName = CLI.RootName
+			case "format":
+				formatSet = true
+			}
+		}
+	}
+	cfg, err := config.LoadConfigWithCLI(configPath, cliPackage, cliRootName, false)
 	if err != nil {
 		return nil, errors.NewInputError("failed to load configuration", err)
+	}
+	if formatSet {
+		cfg.Formatting.Enabled = CLI.Format
+	}
+	for _, warning := range cfg.Warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
 	}
 
 	return &Context{
@@ -147,7 +173,7 @@ func run(ctx *Context) error {
 	// Check if using JSON Schema mode or JSON sample mode
 	if CLI.Schema != "" {
 		// Schema mode: parse and convert JSON Schema
-		analysisResult, err = parseSchema(ctx.Config.RootName)
+		analysisResult, err = parseSchema(ctx.Config)
 		if err != nil {
 			return err
 		}
@@ -172,8 +198,8 @@ func run(ctx *Context) error {
 		return errors.NewGenerateError("failed to generate Go structs", err)
 	}
 
-	// Format the code if requested and enabled in config
-	if CLI.Format && ctx.Config.Formatting.Enabled {
+	// CLI overrides have already been applied to the effective configuration.
+	if ctx.Config.Formatting.Enabled {
 		formatterInst := formatter.NewFormatter()
 		code, err = formatterInst.Format(code)
 		if err != nil {
@@ -186,7 +212,7 @@ func run(ctx *Context) error {
 }
 
 // parseSchema reads and converts a JSON Schema from file or URL
-func parseSchema(rootName string) (models.AnalysisResult, error) {
+func parseSchema(cfg *config.Config) (models.AnalysisResult, error) {
 	// Check for conflicting input sources
 	if CLI.Input != "" || CLI.URL != "" || len(CLI.Sample) > 0 || CLI.NDJSON {
 		return models.AnalysisResult{}, errors.NewInputError(
@@ -214,8 +240,8 @@ func parseSchema(rootName string) (models.AnalysisResult, error) {
 	}
 
 	// Convert schema to analysis result
-	converter := schema.NewConverter(s)
-	result, err := converter.Convert(rootName)
+	converter := schema.NewConverterWithConfig(s, cfg)
+	result, err := converter.Convert(cfg.RootName)
 	if err != nil {
 		return models.AnalysisResult{}, errors.NewAnalysisError(
 			"failed to convert JSON Schema", err)
@@ -241,7 +267,7 @@ func fetchSchemaFromURL(url string) (*schema.Schema, error) {
 	if err != nil {
 		return nil, errors.NewInputError(fmt.Sprintf("failed to fetch schema from URL: %s", url), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, errors.NewInputError(
@@ -453,7 +479,7 @@ func fetchFromURL(urlStr string) (models.IntermediateRepresentation, error) {
 		return models.IntermediateRepresentation{}, errors.NewInputError(
 			fmt.Sprintf("failed to fetch URL: %s", urlStr), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {

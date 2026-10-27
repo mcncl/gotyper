@@ -1,12 +1,16 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/iancoleman/strcase"
+	"github.com/mcncl/gotyper/internal/models"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,6 +26,7 @@ type Config struct {
 	Output     OutputConfig     `yaml:"output"`
 	Arrays     ArraysConfig     `yaml:"arrays"`
 	Dev        DevConfig        `yaml:"dev"`
+	Warnings   []string         `yaml:"-"`
 }
 
 // FormattingConfig controls code formatting options
@@ -166,9 +171,31 @@ func LoadConfig(path string) (*Config, error) {
 	// Start with defaults
 	cfg := NewConfig()
 
-	// Parse YAML
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	// Reject unknown keys, including keys inside nested sections.
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(cfg); err != nil && err != io.EOF {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("config file must contain one YAML document")
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	// Retain legacy inference settings, but tell CLI users that they have no effect.
+	var legacy struct {
+		Types map[string]yaml.Node `yaml:"types"`
+	}
+	if err := yaml.Unmarshal(data, &legacy); err != nil {
+		return nil, err
+	}
+	if _, present := legacy.Types["force_int64"]; present {
+		cfg.Warnings = append(cfg.Warnings, "types.force_int64 is deprecated; integers always use int64; remove this setting")
+	}
+	if _, present := legacy.Types["date_format"]; present {
+		cfg.Warnings = append(cfg.Warnings, "types.date_format is deprecated; non-RFC3339 sample dates remain strings; remove this setting")
 	}
 
 	// Compile regex patterns
@@ -177,6 +204,69 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (c *Config) validate() error {
+	for _, option := range []struct {
+		unsupported  bool
+		name, advice string
+	}{
+		{c.Formatting.UseGofumpt, "formatting.use_gofumpt", "use gofumpt on the generated file separately"},
+		{c.Output.FileHeader != "", "output.file_header", "remove the custom header; generation uses a fixed header"},
+		{c.Output.GenerateConstructors, "output.generate_constructors", "write constructors separately"},
+		{c.Output.GenerateStringMethods, "output.generate_string_methods", "write String methods separately"},
+		{!c.Arrays.MergeDifferentObjects, "arrays.merge_different_objects", "set it to true or remove it; object samples are always merged"},
+		{c.Dev.Debug, "dev.debug", "remove it; debug logging is not implemented"},
+		{c.Dev.Verbose, "dev.verbose", "remove it; verbose logging is not implemented"},
+	} {
+		if option.unsupported {
+			return fmt.Errorf("unsupported configuration %s: %s", option.name, option.advice)
+		}
+	}
+	for _, tag := range c.JSONTags.AdditionalTags {
+		if tag != "yaml" && tag != "xml" {
+			return fmt.Errorf("unsupported json_tags.additional_tags value %q: use yaml or xml", tag)
+		}
+	}
+	return nil
+}
+
+// FieldTags applies configured tags and comments to a generated field.
+// Schema-derived validation and descriptions are defaults; explicit rules win.
+func (c *Config) FieldTags(key string, info models.TypeInfo, validation, comment string) (string, map[string]string, string) {
+	jsonValue := key
+	if (info.IsPointer && c.JSONTags.OmitemptyForPointers) ||
+		(info.Kind == models.Slice && c.JSONTags.OmitemptyForSlices) {
+		jsonValue += ",omitempty"
+	}
+	if mapping, ok := c.FindTypeMapping(key); ok && mapping.Comment != "" {
+		comment = mapping.Comment
+	}
+	if option, ok := c.FindTagOption(key); ok {
+		if option.Options == "-" {
+			jsonValue = "-"
+		} else if option.Options != "" {
+			jsonValue = key + "," + option.Options
+		}
+		if option.Comment != "" {
+			comment = option.Comment
+		}
+	}
+	if rule, ok := c.FindValidationRule(key); ok {
+		validation = rule.Tag
+	}
+	tags := map[string]string{"json": jsonValue}
+	parts := []string{fmt.Sprintf("json:%q", jsonValue)}
+	for _, tag := range c.JSONTags.AdditionalTags {
+		tags[tag] = key
+		parts = append(parts, fmt.Sprintf("%s:%q", tag, key))
+	}
+	if validation != "" {
+		parts = append(parts, validation)
+		// Configured rules contain a full tag, e.g. validate:"required,email".
+		tags["validate"] = strings.TrimSuffix(strings.TrimPrefix(validation, "validate:\""), "\"")
+	}
+	return "`" + strings.Join(parts, " ") + "`", tags, comment
 }
 
 // FindConfigFile searches for a config file in current directory and parents
@@ -310,6 +400,26 @@ func (c *Config) FindTypeMapping(fieldName string) (TypeMapping, bool) {
 	return TypeMapping{}, false
 }
 
+// ArrayElementName applies array naming options before the mode's built-in rules.
+func (c *Config) ArrayElementName(name string, singularize func(string) string) string {
+	if !c.Arrays.SingularizeNames {
+		return name
+	}
+	// Suggested names include their parent, e.g. RootDatums. Match the longest
+	// configured suffix so custom singulars work for nested arrays as well.
+	var suffix, replacement string
+	for plural, singular := range c.Naming.CustomSingulars {
+		candidate := c.GetFieldName(plural)
+		if len(candidate) > len(suffix) && strings.HasSuffix(name, candidate) {
+			suffix, replacement = candidate, c.GetFieldName(singular)
+		}
+	}
+	if suffix != "" {
+		return strings.TrimSuffix(name, suffix) + replacement
+	}
+	return singularize(name)
+}
+
 // FindValidationRule finds the first validation rule that matches the field name
 func (c *Config) FindValidationRule(fieldName string) (ValidationRule, bool) {
 	if !c.Validation.Enabled {
@@ -400,18 +510,18 @@ func LoadConfigWithCLI(configPath, cliPackage, cliRootName string, cliForceInt64
 		cfg = fileConfig
 	}
 
-	// Apply CLI overrides only if they're not the default values
-	// This allows config file values to be used when CLI args are defaults
-	if cliPackage != "" && cliPackage != "main" {
+	// Empty strings mean the CLI flag was not supplied.
+	if cliPackage != "" {
 		cfg.Package = cliPackage
 	}
-	if cliRootName != "" && cliRootName != "RootType" {
+	if cliRootName != "" {
 		cfg.RootName = cliRootName
 	}
 
-	// For boolean CLI args, we override regardless of value
-	// In real implementation, we'd need to track if the flag was explicitly set
-	cfg.Types.ForceInt64 = cliForceInt64
+	// Legacy API argument: integers already use int64 regardless of this setting.
+	if cliForceInt64 {
+		cfg.Types.ForceInt64 = true
+	}
 
 	return cfg, nil
 }

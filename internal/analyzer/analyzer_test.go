@@ -1070,14 +1070,14 @@ func TestOmitemptyGeneration(t *testing.T) {
 		{
 			name:              "pointer field gets omitempty",
 			jsonInput:         `{"optional_field": null}`,
-			configYAML:        `json_tags:\n  omitempty_for_pointers: true`,
+			configYAML:        "json_tags:\n  omitempty_for_pointers: true",
 			expectedOmitempty: true,
 			fieldName:         "optional_field",
 		},
 		{
 			name:              "slice field gets omitempty",
 			jsonInput:         `{"items": []}`,
-			configYAML:        `json_tags:\n  omitempty_for_slices: true`,
+			configYAML:        "json_tags:\n  omitempty_for_slices: true",
 			expectedOmitempty: true,
 			fieldName:         "items",
 		},
@@ -1739,7 +1739,7 @@ validation:
 						// Check the tags map contains the validation tag
 						validateTag, exists := field.Tags["validate"]
 						assert.True(t, exists, "Expected validate tag for field %s", fieldName)
-						assert.Equal(t, expectedTag, validateTag, "Validate tag for field %s", fieldName)
+						assert.Equal(t, expectedTag, fmt.Sprintf("validate:%q", validateTag), "Validate tag for field %s", fieldName)
 						// Check the JSONTag string contains the validation tag
 						assert.Contains(t, field.JSONTag, expectedTag, "JSONTag should contain validation for field %s", fieldName)
 						break
