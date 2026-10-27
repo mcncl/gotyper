@@ -74,7 +74,7 @@ gotyper
   -r, --root-name=STRING Name for the root struct. (default: RootType)
   -c, --config=STRING    Path to configuration file. If not specified, searches for .gotyper.yml
   -f, --format           Format the output code according to Go standards. (default: true)
-  -d, --debug            Enable debug logging.
+  -d, --debug            Unsupported legacy flag; true returns an error.
   -v, --version          Show version information.
   -I, --interactive      Run in interactive mode, allowing direct JSON input with Ctrl+D to process.
 ```
@@ -121,7 +121,7 @@ and nested arrays:
   `int64` range, uses `float64`. Mixing these numeric types uses `float64`, with
   its usual precision and range limits.
 - A field absent from any object sample, or explicitly `null`, is optional and
-  uses a pointer. Missing and null both decode to nil; they are not distinguished.
+  uses a pointer by default. Missing and null both decode to nil; they are not distinguished.
 - Null does not override a known type. Null-only values use `interface{}`.
 - Object samples merge their fields. Array samples merge all their elements at
   each depth, preserving dimensions. Empty arrays add no element-type evidence;
@@ -136,13 +136,23 @@ and nested arrays:
 
 Structs and slice fields keep their existing pointer convention. Null slice
 elements use pointers for scalar values and structs; slices and interfaces can
-represent null directly. JSON tag options still follow configuration.
+represent null directly. Set `types.optional_as_pointers: false` to remove optional
+field pointers. Nullable array elements can still use pointers. JSON tag options
+still follow configuration.
 
 ## Configuration Files
 
 GoTyper supports YAML configuration files for advanced customization. The tool automatically searches for `.gotyper.yml`, `.gotyper.yaml`, `gotyper.yml`, or `gotyper.yaml` in the current directory and parent directories.
 
-> **Example Configuration**: See [`.gotyper.example.yml`](.gotyper.example.yml) for a comprehensive configuration example with all available options.
+Configuration files must contain one YAML document. Unknown keys, including nested
+keys, return an error. Unsupported settings return an error with advice rather
+than being silently ignored.
+
+Explicit `--package`, `--root-name`, and `--format` flags override the file, even
+when set to CLI defaults such as `--package=main`, `--root-name=RootType`, or
+`--format=true`. Omitted flags honor the file; omitted file settings use defaults.
+
+> **Example Configuration**: See [`.gotyper.example.yml`](.gotyper.example.yml) for supported settings. See [Compatibility settings](#compatibility-settings) before reusing older configurations.
 
 ### Basic Configuration
 
@@ -238,7 +248,9 @@ type User struct {
 }
 ```
 
-When processing arrays at the root level, the root name is automatically singularized to name the struct for array elements:
+When processing arrays at the root level, the root name is singularized to name
+the struct for array elements by default. Set `arrays.singularize_names: false`
+to keep the plural name. `naming.custom_singulars` supplies custom mappings.
 
 ```json
 [
@@ -530,22 +542,22 @@ timestamps without a timezone, and offsets such as `+0530`. This lets standard
 This is not a guarantee for every JSON spelling: Go's `time.Time` decoder does
 not unescape strings, so an RFC3339 value written with JSON escapes (such as
 `\u0054` instead of `T`) still requires custom handling.
-The legacy `date_format` setting is still accepted but no longer changes JSON
-sample inference or emits a date-format assumption comment.
+The legacy `types.date_format` setting is still accepted but has no effect.
+It emits a deprecation warning on CLI stderr and no date-format assumption comment.
 
 Explicit field type mappings still take precedence. When mapping a field to
 `time.Time` or another custom type, the caller is responsible for compatibility
 with the input, including any custom JSON decoding required.
 
 **Numeric timestamps:** integers remain `int64` by default. The legacy opt-in
-`unix_timestamps_as_time: true` still emits `time.Time` for positive 10- or
+`types.unix_timestamps_as_time: true` still emits `time.Time` for positive 10- or
 13-digit integer literals beginning with `1`. This is a type-selection heuristic,
 not timestamp conversion: generated code compiles, but standard `encoding/json`
 cannot decode those numbers into `time.Time`. Callers must convert the input to
 RFC3339 strings or implement custom decoding on the containing type. Negative
 values, other digit lengths/prefixes, quoted numbers, and decimal/exponent forms
 are not promoted by this option. Leave it `false` to decode numeric samples
-without custom handling.
+without custom handling. This option has no effect in schema mode.
 
 ### Special Type Handling
 
@@ -560,7 +572,8 @@ When processing JSON arrays, GoTyper analyzes the elements to determine the most
 
 #### Null Values
 
-Fields that contain `null` in the JSON are converted to pointer types with the `omitempty` JSON tag. For example:
+By default, optional fields use pointers with the `omitempty` JSON tag. A field
+with only null samples has no known type and uses `*interface{}`. For example:
 
 ```json
 {
@@ -573,8 +586,8 @@ Becomes:
 
 ```go
 type RootType struct {
-  Address *Address `json:"address,omitempty"`
-  Name    string   `json:"name"`
+  Address *interface{} `json:"address,omitempty"`
+  Name    string       `json:"name"`
 }
 ```
 
@@ -592,7 +605,23 @@ When an error occurs, GoTyper will display a user-friendly message and exit with
 
 ## Configuration Reference
 
-### Complete Configuration Options
+### Supported Configuration Options
+
+These settings apply to both JSON samples and JSON Schema. Patterns match the
+original field key. Type mappings, custom tag options, and validation rules each
+use the first matching entry. `skip_fields` matches exact keys and removes fields
+entirely; `options: "-"` only excludes a field from JSON serialization.
+Nonempty custom JSON options replace the default options rather than adding to
+them. YAML and XML tags use the original key without these JSON options.
+
+`types.optional_as_pointers: false` removes optional field pointers, not every
+pointer: nullable array elements and recursive schema references can retain them.
+Mapped types must support decoding the input; `import` adds the required package.
+
+`validation.enabled` controls configured rules only. Schema-derived validation
+tags appear by default, even when it is false. When enabled, the first matching
+configured rule replaces schema-derived validation for that field. Type-mapping
+comments replace schema descriptions; custom tag comments take precedence over both.
 
 ```yaml
 # Basic settings
@@ -602,13 +631,10 @@ root_name: "APIResponse"            # Name for root struct
 # Code formatting
 formatting:
   enabled: true                     # Enable gofmt formatting
-  use_gofumpt: false               # Use gofumpt instead of gofmt
 
 # Type inference and mapping
 types:
-  force_int64: false               # Force all integers to int64
-  optional_as_pointers: true       # Make nullable fields pointers
-  unix_timestamps_as_time: false   # Legacy opt-in; true requires custom numeric timestamp decoding
+  optional_as_pointers: true       # Use pointers for optional fields
   mappings:
     - pattern: ".*_id$|^id$"       # Regex pattern for field names
       type: "int64"                # Target Go type
@@ -621,12 +647,14 @@ naming:
   field_mappings:                  # Custom field name mappings
     "user_id": "UserID"
     "api_key": "APIKey"
+  custom_singulars:                # Array element names when singularization is enabled
+    "datums": "datum"
 
 # JSON tag generation
 json_tags:
   omitempty_for_pointers: true     # Add omitempty to pointer fields
   omitempty_for_slices: true       # Add omitempty to slice fields
-  additional_tags:                 # Additional tag formats to generate
+  additional_tags:                 # Only yaml and xml are supported
     - "yaml"
     - "xml"
   custom_options:                  # Pattern-based tag customization
@@ -639,7 +667,7 @@ json_tags:
 
 # Validation tag generation (for go-playground/validator)
 validation:
-  enabled: true                    # Enable validation tag generation
+  enabled: true                    # Enable configured rules (default: false)
   rules:
     - pattern: ".*email.*"
       tag: "validate:\"required,email\""
@@ -648,22 +676,32 @@ validation:
     - pattern: ".*password.*"
       tag: "validate:\"required,min=8\""
 
-# Output options
-output:
-  file_header: ""                  # Custom file header
-  generate_constructors: false    # Generate constructor functions
-  generate_string_methods: false  # Generate String() methods
-
 # Array handling
 arrays:
-  merge_different_objects: true   # Merge objects with different fields
   singularize_names: true         # Singularize array element struct names
-
-# Development options
-dev:
-  debug: false                    # Enable debug output
-  verbose: false                  # Enable verbose logging
 ```
+
+### Compatibility settings
+
+The following keys remain accepted only at their inactive defaults so older
+files can load. They are not supported features. Remove them from new files.
+
+| Setting | Accepted value | Rejected value and alternative |
+| --- | --- | --- |
+| `formatting.use_gofumpt` | `false` | `true`: run gofumpt separately |
+| `output.file_header` | `""` | Nonempty: use the fixed generated-code header |
+| `output.generate_constructors` | `false` | `true`: write constructors separately |
+| `output.generate_string_methods` | `false` | `true`: write String methods separately |
+| `dev.debug`, `dev.verbose` | `false` | `true`: logging is not implemented |
+| `arrays.merge_different_objects` | `true` | `false`: object samples always merge; remove the setting or use `true` |
+
+`--debug` (or `--debug=true`) also returns an error; `--debug=false` remains accepted.
+
+`types.force_int64` and `types.date_format` are deprecated no-ops. Their presence,
+even at default values, emits a warning on CLI stderr. Integers always use `int64`
+(subject to the numeric inference rules above); non-RFC3339 sample dates stay strings.
+Remove both keys. The legacy `types.unix_timestamps_as_time` opt-in remains
+sample-only and requires custom decoding; see [Date and Time Inference](#date-and-time-inference).
 
 ## Advanced Usage
 
@@ -755,7 +793,8 @@ type User struct {
 **Schema Features Supported:**
 - **Types**: object, array, string, integer, number, boolean, null
 - **Formats**: date-time, date, time, email, uuid, uri (converted to appropriate Go types)
-- **Required fields**: Non-required fields become pointers with `omitempty`
+- **Required fields**: Non-required fields become pointers with `omitempty` by default;
+  `types.optional_as_pointers` and JSON tag settings control this behavior
 - **Typed maps**: Objects without fixed properties become `map[string]T`, where
   `additionalProperties` supplies `T`. Values can be primitives, objects, arrays,
   maps, or local references. Without a value schema, `T` is `interface{}`.
@@ -843,7 +882,6 @@ json_tags:
   additional_tags:
     - "yaml"
     - "xml"
-    - "toml"
 EOF
 
 # Generate structs with multiple tag formats (using URL)

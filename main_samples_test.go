@@ -13,6 +13,131 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCLIConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "gotyper.exe")
+	output, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	write := func(name, data string) string {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+		return path
+	}
+	run := func(input string, args ...string) (string, string, error) {
+		t.Helper()
+		cmd := exec.Command(binary, args...)
+		cmd.Dir = dir
+		cmd.Stdin = strings.NewReader(input)
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		stdout, err := cmd.Output()
+		return string(stdout), stderr.String(), err
+	}
+	write(".gotyper.yml", `package: configured
+root_name: Configured
+formatting:
+  enabled: false
+types:
+  optional_as_pointers: false
+  mappings:
+    - pattern: ^created_at$
+      type: time.Time
+      import: time
+      comment: Creation time
+naming:
+  field_mappings:
+    user_id: UserID
+arrays:
+  singularize_names: false
+json_tags:
+  additional_tags: [yaml, xml]
+  omitempty_for_pointers: false
+  omitempty_for_slices: false
+  skip_fields: [secret]
+  custom_options:
+    - pattern: ^user_id$
+      options: omitempty
+validation:
+  enabled: true
+  rules:
+    - pattern: ^user_id$
+      tag: 'validate:"required"'
+`)
+	sample := `{"user_id":"u1","created_at":"2026-10-21T01:02:03Z","secret":{"when":"2026-10-21T01:02:03Z"},"entries":[{"value":2}]}`
+	schemaPath := write("schema.json", `{"type":"object","required":["user_id","created_at","secret","entries"],"properties":{"user_id":{"type":"string"},"created_at":{"type":"string"},"secret":{"type":"object","properties":{"when":{"type":"string"}}},"entries":{"type":"array","items":{"type":"object","required":["value"],"properties":{"value":{"type":"integer"}}}}}}`)
+	for _, args := range [][]string{nil, {"--schema", schemaPath}} {
+		code, stderr, err := run(sample, args...)
+		require.NoError(t, err, "%s", stderr)
+		require.Contains(t, code, "package configured")
+		require.Contains(t, code, "type Configured struct")
+		require.Regexp(t, "UserID +string +`json:\"user_id,omitempty\" yaml:\"user_id\" xml:\"user_id\" validate:\"required\"`", code)
+		require.Regexp(t, "CreatedAt +time.Time .*// Creation time", code)
+		require.Regexp(t, "Entries +\\[\\]\\*ConfiguredEntries", code)
+		require.NotContains(t, code, "Secret")
+		write("go.mod", "module configured\n\ngo 1.27\n")
+		write("types.go", code)
+		write("types_test.go", fmt.Sprintf(`package configured
+import ("encoding/json"; "testing")
+func TestDecode(t *testing.T) {
+ var v Configured
+ if err := json.Unmarshal([]byte(%q), &v); err != nil { t.Fatal(err) }
+ if v.UserID != "u1" || v.CreatedAt.Hour() != 1 || len(v.Entries) != 1 || v.Entries[0].Value != 2 { t.Fatal(v) }
+}`, sample))
+		check := exec.Command("go", "test", "./...")
+		check.Dir = dir
+		output, err := check.CombinedOutput()
+		require.NoError(t, err, "%s\n%s", output, code)
+		code, stderr, err = run(sample, append(args, "--package=main", "--root-name=RootType", "--format=true")...)
+		require.NoError(t, err, "%s", stderr)
+		require.Contains(t, code, "package main")
+		require.Contains(t, code, "type RootType struct")
+		require.Contains(t, code, "\tUserID")
+	}
+	// Disabling optional field pointers must also affect merged samples and nulls.
+	write(".gotyper.yml", "types:\n  optional_as_pointers: false\njson_tags:\n  omitempty_for_pointers: false\n")
+	optionalSchema := write("optional.json", `{"type":"object","properties":{"count":{"type":["null","integer"]},"next":{"$ref":"#"}}}`)
+	for _, args := range [][]string{{"--ndjson"}, {"--schema", optionalSchema}} {
+		code, stderr, err := run("{\"count\":null}\n{\"count\":4}", args...)
+		require.NoError(t, err, "%s", stderr)
+		require.Regexp(t, "Count +int64 +`json:\"count\"", code)
+		if len(args) > 1 {
+			require.Regexp(t, "Next +\\*RootType", code)
+		}
+	}
+	write(".gotyper.yml", "naming:\n  pascal_case_fields: false\n  custom_singulars:\n    Datums: Datum\n")
+	customSchema := write("custom.json", `{"type":"object","properties":{"Datums":{"type":"array","items":{"type":"object","required":["Field_name"],"properties":{"Field_name":{"type":"boolean"}}}}}}`)
+	for _, args := range [][]string{nil, {"--schema", customSchema}} {
+		code, stderr, err := run(`{"Datums":[{"Field_name":true}]}`, args...)
+		require.NoError(t, err, "%s", stderr)
+		require.Contains(t, code, "type RootTypeDatum struct")
+		require.Regexp(t, "Field_name +bool", code)
+	}
+	write(".gotyper.yml", "types:\n  force_int64: false\n  date_format: eu\n")
+	code, stderr, err := run(`{"count":7,"date":"21/10/2026"}`)
+	require.NoError(t, err, "%s", stderr)
+	require.Contains(t, stderr, "types.force_int64 is deprecated")
+	require.Contains(t, stderr, "types.date_format is deprecated")
+	require.Regexp(t, "Count +int64", code)
+	require.Regexp(t, "Date +string", code)
+	// Omitting --format honors the file; an explicit true overrides false.
+	// Invalid Go output distinguishes formatting from the generator's own alignment.
+	write(".gotyper.yml", "package: invalid-name\nformatting:\n  enabled: false\n")
+	for _, args := range [][]string{nil, {"--format=false"}} {
+		code, stderr, err := run(sample, args...)
+		require.NoError(t, err, "%s", stderr)
+		require.Contains(t, code, "package invalid-name")
+	}
+	for _, args := range [][]string{{"--format=true"}, {"-f"}} {
+		_, stderr, err := run(sample, args...)
+		require.Error(t, err)
+		require.Contains(t, stderr, "failed to format Go code")
+	}
+	_, stderr, err = run(sample, "--debug")
+	require.Error(t, err)
+	require.Contains(t, stderr, "--debug is unsupported")
+}
+
 func TestCLISampleInputs(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "gotyper.exe")

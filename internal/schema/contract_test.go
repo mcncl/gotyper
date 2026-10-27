@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mcncl/gotyper/internal/config"
 	"github.com/mcncl/gotyper/internal/generator"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +14,21 @@ import (
 func TestGeneratedSchemaTypesDecode(t *testing.T) {
 	tests := []struct {
 		name, schema, check string
+		valueFields         bool
 	}{
+		{
+			name:        "value fields retain nullable elements and recursion",
+			valueFields: true,
+			schema: `{"type":"object","properties":{
+				"count":{"type":["integer","null"]},
+				"values":{"type":"array","items":{"$ref":"#/$defs/Value"}},
+				"lookup":{"type":"object","additionalProperties":{"$ref":"#/$defs/Value"}},
+				"next":{"$ref":"#"}},"$defs":{"Value":{"type":["integer","null"]}}}`,
+			check: `var v Root; decode(t, ` + "`" + `{"count":null,"values":[1,null],"lookup":{"one":1,"blank":null},"next":{"count":5}}` + "`" + `, &v)
+				var count int64 = v.Count; var next *Root = v.Next
+				if count != 0 || next.Count != 5 || next.Next != nil { t.Fatal(v) }
+				if len(v.Values) != 2 || *v.Values[0] != 1 || v.Values[1] != nil || *v.Lookup["one"] != 1 || v.Lookup["blank"] != nil { t.Fatal(v) }`,
+		},
 		{
 			name:   "date-time root",
 			schema: `{"type":"string","format":"date-time"}`,
@@ -111,7 +126,11 @@ func TestGeneratedSchemaTypesDecode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := ParseString(tt.schema)
 			require.NoError(t, err)
-			result, err := NewConverter(s).Convert("Root")
+			cfg := config.NewConfig()
+			if tt.valueFields {
+				cfg.Types.OptionalAsPointers = false
+			}
+			result, err := NewConverterWithConfig(s, cfg).Convert("Root")
 			require.NoError(t, err)
 			code, err := generator.NewGenerator().GenerateStructs(result, "contract")
 			require.NoError(t, err)

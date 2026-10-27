@@ -9,6 +9,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestConfig_RejectUnsupportedSettings(t *testing.T) {
+	for _, tc := range []struct{ yaml, diagnostic string }{
+		{"types:\n  force_int: true", "force_int"},
+		{"formatting:\n  use_gofumpt: true", "formatting.use_gofumpt"},
+		{"output:\n  generate_constructors: true", "output.generate_constructors"},
+		{"output:\n  generate_string_methods: true", "output.generate_string_methods"},
+		{"output:\n  file_header: custom", "output.file_header"},
+		{"arrays:\n  merge_different_objects: false", "arrays.merge_different_objects"},
+		{"dev:\n  debug: true", "dev.debug"},
+		{"dev:\n  verbose: true", "dev.verbose"},
+		{"json_tags:\n  additional_tags: [toml]", "toml"},
+		{"package: one\n---\npackage: two", "one YAML document"},
+	} {
+		t.Run(tc.yaml, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yml")
+			require.NoError(t, os.WriteFile(path, []byte(tc.yaml), 0o600))
+			_, err := LoadConfig(path)
+			require.ErrorContains(t, err, tc.diagnostic)
+		})
+	}
+}
+
 func TestConfig_DefaultValues(t *testing.T) {
 	cfg := NewConfig()
 
@@ -28,7 +50,7 @@ package: "models"
 root_name: "APIResponse"
 formatting:
   enabled: true
-  use_gofumpt: true
+  use_gofumpt: false
 types:
   force_int64: true
   optional_as_pointers: false
@@ -65,7 +87,7 @@ validation:
 	// Verify values
 	assert.Equal(t, "models", cfg.Package)
 	assert.Equal(t, "APIResponse", cfg.RootName)
-	assert.True(t, cfg.Formatting.UseGofumpt)
+	assert.False(t, cfg.Formatting.UseGofumpt)
 	assert.True(t, cfg.Types.ForceInt64)
 	assert.False(t, cfg.Types.OptionalAsPointers)
 	assert.False(t, cfg.Naming.PascalCaseFields)

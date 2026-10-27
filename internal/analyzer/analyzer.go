@@ -135,6 +135,15 @@ func (a *Analyzer) Analyze(ir models.IntermediateRepresentation, rootStructName 
 		}
 	}
 
+	if !a.config.Types.OptionalAsPointers {
+		for i := range a.analysisResult.Structs {
+			for j := range a.analysisResult.Structs[i].Fields {
+				field := &a.analysisResult.Structs[i].Fields[j]
+				field.GoType.IsPointer = false
+				field.JSONTag, field.Tags, field.Comment = a.config.FieldTags(field.JSONKey, field.GoType, "", "")
+			}
+		}
+	}
 	return a.analysisResult, nil
 }
 
@@ -255,7 +264,7 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 			}
 
 			// Generate enhanced tags
-			jsonTag, tags, comment := a.generateFieldTags(key, fieldTypeInfo, val)
+			jsonTag, tags, comment := a.config.FieldTags(key, fieldTypeInfo, "", "")
 
 			// Add field to the candidate struct
 			candidateStructDef.Fields = append(candidateStructDef.Fields, models.FieldInfo{
@@ -284,7 +293,7 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 		}
 
 		// Generate enhanced tags
-		jsonTag, tags, comment := a.generateFieldTags(key, fieldTypeInfo, val)
+		jsonTag, tags, comment := a.config.FieldTags(key, fieldTypeInfo, "", "")
 
 		// Add field to the candidate struct
 		candidateStructDef.Fields = append(candidateStructDef.Fields, models.FieldInfo{
@@ -304,7 +313,9 @@ func (a *Analyzer) analyzeObject(obj models.JSONObject, suggestedName string, is
 
 func (a *Analyzer) analyzeArray(arr models.JSONArray, suggestedElementName string, isRootArray bool) (models.TypeInfo, error) {
 	// Suggested name for elements of an array should be singularized form of the array's suggested name.
-	elementSuggestedName := singularize(a.getFieldName(suggestedElementName), a.config.Naming.CustomSingulars)
+	elementSuggestedName := a.config.ArrayElementName(a.getFieldName(suggestedElementName), func(name string) string {
+		return singularize(name, nil)
+	})
 	// Analyze reserves the requested root name, which may still be plural.
 	// Reserve the element name before a descendant can claim it.
 	if isRootArray && a.structNames[elementSuggestedName] == 0 {
@@ -357,107 +368,6 @@ func (a *Analyzer) getFieldName(jsonKey string) string {
 // checkTypeMapping checks if a field name matches any configured type mappings
 func (a *Analyzer) checkTypeMapping(fieldName string) (config.TypeMapping, bool) {
 	return a.config.FindTypeMapping(fieldName)
-}
-
-// generateFieldTags creates tags for a field based on configuration
-func (a *Analyzer) generateFieldTags(jsonKey string, fieldTypeInfo models.TypeInfo, originalValue models.JSONValue) (string, map[string]string, string) {
-	tags := make(map[string]string)
-	var comment string
-
-	// Generate JSON tag with custom options
-	jsonTag := a.generateJSONTag(jsonKey, fieldTypeInfo, originalValue)
-	tags["json"] = strings.Trim(jsonTag, "`")
-	tags["json"] = strings.TrimPrefix(tags["json"], "json:")
-	tags["json"] = strings.Trim(tags["json"], "\"")
-
-	// Generate additional format tags
-	for _, format := range a.config.JSONTags.AdditionalTags {
-		switch format {
-		case "yaml":
-			tags["yaml"] = a.generateYAMLTag(jsonKey, fieldTypeInfo)
-		case "xml":
-			tags["xml"] = a.generateXMLTag(jsonKey, fieldTypeInfo)
-		}
-	}
-
-	// Check for custom tag options and comments
-	if tagOption, found := a.config.FindTagOption(jsonKey); found {
-		if tagOption.Options != "" {
-			if tagOption.Options == "-" {
-				// Exclude field from JSON serialization entirely
-				tags["json"] = "-"
-			} else {
-				// Override JSON tag with custom options
-				tags["json"] = jsonKey + "," + tagOption.Options
-			}
-		}
-		if tagOption.Comment != "" {
-			comment = tagOption.Comment
-		}
-	}
-
-	// Add validation tag if configured
-	if validationRule, found := a.config.FindValidationRule(jsonKey); found {
-		tags["validate"] = validationRule.Tag
-	}
-
-	// Build final tag string
-	var tagParts []string
-	if jsonValue, ok := tags["json"]; ok && jsonValue != "-" {
-		tagParts = append(tagParts, fmt.Sprintf("json:\"%s\"", jsonValue))
-	} else if jsonValue == "-" {
-		tagParts = append(tagParts, "json:\"-\"")
-	}
-
-	for _, format := range a.config.JSONTags.AdditionalTags {
-		if value, ok := tags[format]; ok {
-			tagParts = append(tagParts, fmt.Sprintf("%s:\"%s\"", format, value))
-		}
-	}
-
-	// Add validation tag if present (tag value already includes the full tag format)
-	if validateTag, ok := tags["validate"]; ok {
-		tagParts = append(tagParts, validateTag)
-	}
-
-	finalTag := "`" + strings.Join(tagParts, " ") + "`"
-	return finalTag, tags, comment
-}
-
-// generateJSONTag creates a JSON tag with proper omitempty handling
-func (a *Analyzer) generateJSONTag(jsonKey string, fieldTypeInfo models.TypeInfo, originalValue models.JSONValue) string {
-	omitempty := a.determineOmitempty(originalValue, fieldTypeInfo)
-	return fmt.Sprintf("`json:\"%s%s\"`", jsonKey, omitempty)
-}
-
-// generateYAMLTag creates a YAML tag
-func (a *Analyzer) generateYAMLTag(jsonKey string, fieldTypeInfo models.TypeInfo) string {
-	// YAML uses similar naming conventions as JSON
-	return jsonKey
-}
-
-// generateXMLTag creates an XML tag
-func (a *Analyzer) generateXMLTag(jsonKey string, fieldTypeInfo models.TypeInfo) string {
-	// XML typically uses similar naming but could have different conventions
-	return jsonKey
-}
-
-// determineOmitempty decides if ",omitempty" should be added to the JSON tag using config
-func (a *Analyzer) determineOmitempty(originalValue models.JSONValue, typeInfo models.TypeInfo) string {
-	if typeInfo.IsPointer && a.config.JSONTags.OmitemptyForPointers {
-		return ",omitempty"
-	}
-
-	if (typeInfo.Kind == models.Slice) && a.config.JSONTags.OmitemptyForSlices {
-		return ",omitempty"
-	}
-
-	// For interfaces (usually null values), always use omitempty
-	if typeInfo.Kind == models.Interface {
-		return ",omitempty"
-	}
-
-	return ""
 }
 
 // singularize attempts to convert a plural name to a singular one.
@@ -771,7 +681,7 @@ func (a *Analyzer) createMergedStructDef(objects []models.JSONObject, suggestedN
 			}
 		}
 		info.IsPointer = info.IsPointer || optional
-		jsonTag, tags, comment := a.generateFieldTags(key, info, nil)
+		jsonTag, tags, comment := a.config.FieldTags(key, info, "", "")
 		fields = append(fields, models.FieldInfo{
 			JSONKey: key, GoName: a.getFieldName(key), GoType: info,
 			JSONTag: jsonTag, Tags: tags, Comment: comment,
